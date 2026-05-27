@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TalkingHead</title>
+<style>
+  html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    background: #202020;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    max-width: 900px;
+    margin: 0 auto;
+    position: relative;
+  }
+  #avatar {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+  }
+  #controls {
+    display: flex;
+    gap: 8px;
+    padding: 12px;
+    background: #181818;
+    border-top: 1px solid #2a2a2a;
+  }
+  #text {
+    flex: 1;
+    padding: 10px 12px;
+    font-size: 16px;
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: #111;
+    color: #fff;
+  }
+  #speak {
+    padding: 10px 18px;
+    font-size: 16px;
+    border: 0;
+    border-radius: 6px;
+    background: #2f7cff;
+    color: #fff;
+    cursor: pointer;
+  }
+  #speak:disabled {
+    background: #444;
+    cursor: not-allowed;
+  }
+  #status {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 6px;
+    font-size: 14px;
+    pointer-events: none;
+  }
+  #status.hidden { display: none; }
+  #status.error { background: rgba(140, 30, 30, 0.85); }
+</style>
+</head>
+<body>
+  <div id="avatar"></div>
+  <div id="status">Loading...</div>
+  <div id="controls">
+    <input id="text" type="text" placeholder="Type something for the avatar to say..." value="Hello! I am a talking head." />
+    <button id="speak" disabled>Speak</button>
+  </div>
+
+  <script src="./config.js" onerror="window.__TH_NO_CONFIG = true"></script>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js/+esm",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "talkinghead": "https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.7/modules/talkinghead.mjs"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import { TalkingHead } from "talkinghead";
+
+    const statusEl = document.getElementById("status");
+    const speakBtn = document.getElementById("speak");
+    const textEl = document.getElementById("text");
+    const avatarEl = document.getElementById("avatar");
+
+    function showStatus(msg, isError = false) {
+      statusEl.textContent = msg;
+      statusEl.classList.remove("hidden");
+      statusEl.classList.toggle("error", isError);
+    }
+    function hideStatus() {
+      statusEl.classList.add("hidden");
+    }
+
+    const apiKey = window.TALKINGHEAD_TTS_APIKEY;
+    if (window.__TH_NO_CONFIG || !apiKey || apiKey === "your-key-here") {
+      showStatus(
+        "Missing config.js. Copy config.example.js to config.js and set your Google TTS API key.",
+        true
+      );
+      throw new Error("TalkingHead: missing TTS API key");
+    }
+
+    const head = new TalkingHead(avatarEl, {
+      ttsEndpoint: "https://eu-texttospeech.googleapis.com/v1beta1/text:synthesize",
+      ttsApikey: apiKey,
+      lipsyncModules: ["en"],
+      cameraView: "upper",
+    });
+
+    const avatarUrl = window.TALKINGHEAD_AVATAR_URL || "./avatar.glb";
+
+    try {
+      const headCheck = await fetch(avatarUrl, { method: "HEAD" });
+      if (!headCheck.ok) {
+        throw new Error(`HTTP ${headCheck.status} for ${avatarUrl}`);
+      }
+    } catch (err) {
+      console.error(err);
+      showStatus(
+        "Avatar GLB not found at ./avatar.glb. Drop a Ready Player Me / TalkingHead-compatible GLB (ARKit + Oculus visemes) into this folder as avatar.glb, or set window.TALKINGHEAD_AVATAR_URL in config.js.",
+        true
+      );
+      throw err;
+    }
+
+    try {
+      await head.showAvatar(
+        {
+          url: avatarUrl,
+          body: "F",
+          avatarMood: "neutral",
+          ttsLang: "en-GB",
+          ttsVoice: "en-GB-Standard-A",
+          lipsyncLang: "en",
+        },
+        (ev) => {
+          if (ev.lengthComputable) {
+            const pct = Math.min(100, Math.round((ev.loaded / ev.total) * 100));
+            showStatus(`Loading ${pct}%`);
+          }
+        }
+      );
+      hideStatus();
+      speakBtn.disabled = false;
+    } catch (err) {
+      console.error(err);
+      showStatus(`Failed to load avatar: ${err}`, true);
+    }
+
+    function speakNow() {
+      const text = textEl.value.trim();
+      if (!text) return;
+      try {
+        head.speakText(text);
+      } catch (err) {
+        console.error(err);
+        showStatus(`Speak failed: ${err}`, true);
+      }
+    }
+
+    speakBtn.addEventListener("click", speakNow);
+    textEl.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        speakNow();
+      }
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") head.start();
+      else head.stop();
+    });
+  </script>
+</body>
+</html>
