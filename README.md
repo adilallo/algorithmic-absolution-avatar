@@ -1,6 +1,8 @@
-# TalkingHead kiosk
+# Office of Algorithmic Absolution — Talking Avatar
 
-Browser-based talking avatar using [TalkingHead](https://github.com/met4citizen/TalkingHead) (Three.js + Google Cloud TTS + lip sync).
+Talking-head avatar software for **Office of Algorithmic Absolution**, a kinetic installation where participants confess via punch card and receive algorithmic absolution from a screen above the altar. This repo covers only that avatar: a browser-based 3D character that speaks LLM-generated text aloud with lip sync.
+
+Built on [TalkingHead](https://github.com/met4citizen/TalkingHead) (Three.js + Google Cloud TTS). In production, absolution text comes from upstream; the included text input UI is for local dev and rehearsal.
 
 ## Setup
 
