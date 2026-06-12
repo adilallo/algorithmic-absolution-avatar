@@ -1,0 +1,16 @@
+[Unit]
+Description=Algorithmic Absolution avatar kiosk
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/algorithmic-absolution-avatar
+ExecStart=/home/pi/algorithmic-absolution-avatar/deploy/start-avatar.sh
+Restart=always
+RestartSec=5
+Environment=DISPLAY=:0
+
+[Install]
+WantedBy=multi-user.target

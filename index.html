@@ -20,6 +20,14 @@
     margin: 0 auto;
     position: relative;
   }
+  body.production {
+    max-width: none;
+    margin: 0;
+    cursor: none;
+  }
+  body.production #controls {
+    display: none;
+  }
   #avatar {
     flex: 1;
     width: 100%;
@@ -92,6 +100,14 @@
   <script type="module">
     import { TalkingHead } from "talkinghead";
 
+    const isProduction =
+      window.TALKINGHEAD_PRODUCTION === true ||
+      new URLSearchParams(location.search).has("production");
+
+    if (isProduction) {
+      document.body.classList.add("production");
+    }
+
     const statusEl = document.getElementById("status");
     const speakBtn = document.getElementById("speak");
     const textEl = document.getElementById("text");
@@ -106,11 +122,41 @@
       statusEl.classList.add("hidden");
     }
 
+    function scheduleRecovery(reason) {
+      console.error("[avatar] fatal error, reloading in 3s:", reason);
+      setTimeout(() => location.reload(), 3000);
+    }
+
+    function handleFatalError(reason) {
+      if (isProduction) {
+        scheduleRecovery(reason);
+      } else {
+        showStatus(String(reason), true);
+      }
+    }
+
+    if (isProduction) {
+      document.addEventListener("contextmenu", (ev) => ev.preventDefault());
+      document.addEventListener("keydown", (ev) => {
+        const key = ev.key;
+        if (
+          key === "F5" ||
+          key === "F11" ||
+          key === "F12" ||
+          (ev.ctrlKey && (key === "r" || key === "R")) ||
+          (ev.ctrlKey && ev.shiftKey && (key === "i" || key === "I" || key === "j" || key === "J")) ||
+          (ev.metaKey && (key === "r" || key === "R")) ||
+          (ev.metaKey && ev.altKey && (key === "i" || key === "I"))
+        ) {
+          ev.preventDefault();
+        }
+      });
+    }
+
     const apiKey = window.TALKINGHEAD_TTS_APIKEY;
     if (window.__TH_NO_CONFIG || !apiKey || apiKey === "your-key-here") {
-      showStatus(
-        "Missing config.js. Copy config.example.js to config.js and set your Google TTS API key.",
-        true
+      handleFatalError(
+        "Missing config.js. Copy config.example.js to config.js and set your Google TTS API key."
       );
       throw new Error("TalkingHead: missing TTS API key");
     }
@@ -131,9 +177,10 @@
       }
     } catch (err) {
       console.error(err);
-      showStatus(
-        "Avatar GLB not found at ./avatar.glb. Drop a Ready Player Me / TalkingHead-compatible GLB (ARKit + Oculus visemes) into this folder as avatar.glb, or set window.TALKINGHEAD_AVATAR_URL in config.js.",
-        true
+      handleFatalError(
+        isProduction
+          ? err
+          : "Avatar GLB not found at ./avatar.glb. Drop a Ready Player Me / TalkingHead-compatible GLB (ARKit + Oculus visemes) into this folder as avatar.glb, or set window.TALKINGHEAD_AVATAR_URL in config.js."
       );
       throw err;
     }
@@ -156,30 +203,42 @@
         }
       );
       hideStatus();
-      speakBtn.disabled = false;
+      if (!isProduction) {
+        speakBtn.disabled = false;
+      }
+
+      window.avatarSpeak = (text) => {
+        const t = String(text ?? "").trim();
+        if (!t) return;
+        try {
+          head.speakText(t);
+        } catch (err) {
+          console.error("[avatar] speak failed:", err);
+          if (!isProduction) {
+            showStatus(`Speak failed: ${err}`, true);
+          }
+        }
+      };
     } catch (err) {
       console.error(err);
-      showStatus(`Failed to load avatar: ${err}`, true);
+      handleFatalError(isProduction ? err : `Failed to load avatar: ${err}`);
     }
 
-    function speakNow() {
-      const text = textEl.value.trim();
-      if (!text) return;
-      try {
-        head.speakText(text);
-      } catch (err) {
-        console.error(err);
-        showStatus(`Speak failed: ${err}`, true);
+    if (!isProduction) {
+      function speakNow() {
+        const text = textEl.value.trim();
+        if (!text) return;
+        window.avatarSpeak(text);
       }
-    }
 
-    speakBtn.addEventListener("click", speakNow);
-    textEl.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter") {
-        ev.preventDefault();
-        speakNow();
-      }
-    });
+      speakBtn.addEventListener("click", speakNow);
+      textEl.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          speakNow();
+        }
+      });
+    }
 
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") head.start();

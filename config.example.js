@@ -9,6 +9,10 @@
 
 window.TALKINGHEAD_TTS_APIKEY = "your-key-here";
 
+// Production kiosk: hide dev controls, enable visitor hardening.
+// On the Pi, set to true in local config.js. Or append ?production=1 to the URL for testing.
+window.TALKINGHEAD_PRODUCTION = false;
+
 // Avatar: by default the page loads ./avatar.glb from this folder.
 // Drop a TalkingHead-compatible GLB there (Mixamo rig + ARKit + Oculus visemes,
 // e.g. a Ready Player Me export with ?morphTargets=ARKit,Oculus+Visemes,...).

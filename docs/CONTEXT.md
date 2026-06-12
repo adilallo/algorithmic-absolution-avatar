@@ -2,7 +2,7 @@
 
 Living reference for installation constraints, hardware targets, and decisions that affect how this avatar is built and deployed. Update this document as we learn more; link related Linear issues where relevant.
 
-**Related:** [ALG-5 — Define target display resolution and PC specs](https://linear.app/algorithmic-absolution/issue/ALG-5/define-target-display-resolution-and-pc-specs)
+**Related:** [ALG-5 — Define target display resolution and PC specs](https://linear.app/algorithmic-absolution/issue/ALG-5/define-target-display-resolution-and-pc-specs) · [ALG-6 — Configure production kiosk browser mode](https://linear.app/algorithmic-absolution/issue/ALG-6/configure-production-kiosk-browser-mode)
 
 ---
 
@@ -71,6 +71,43 @@ Tracks [ALG-5](https://linear.app/algorithmic-absolution/issue/ALG-5/define-targ
 
 ---
 
+## Production kiosk (ALG-6)
+
+Tracks [ALG-6](https://linear.app/algorithmic-absolution/issue/ALG-6/configure-production-kiosk-browser-mode). **Done when (off-Pi):** production entry point launches fullscreen with no visitor controls, `avatarSpeak` is exposed, deploy scripts exist, local kiosk test passes. Pi boot validation pending [ALG-21](https://linear.app/algorithmic-absolution/issue/ALG-21/end-to-end-integration-test-on-target-hardware).
+
+### Production entry
+
+| Mechanism | Usage |
+|-----------|-------|
+| Config flag | `window.TALKINGHEAD_PRODUCTION = true` in local `config.js` |
+| Query param | `?production=1` for quick testing without editing config |
+| Kiosk launch | `./deploy/start-avatar.sh` or Chromium `--kiosk --app=http://127.0.0.1:8765/?production=1` |
+
+### Production behavior
+
+- Dev text input and Speak button hidden
+- Full-bleed layout (no 900px dev constraint)
+- Visitor hardening: context menu and common shortcuts blocked, cursor hidden
+- `window.avatarSpeak(text)` — upstream integration point ([ALG-13](https://linear.app/algorithmic-absolution/issue/ALG-13/wire-punch-card-submission-to-avatar-speech-pipeline))
+- Fatal load errors: console log + auto-reload after 3s (no stuck error UI)
+
+### Validated locally
+
+- [x] Production mode via `?production=1`
+- [x] Deploy scripts in `deploy/`
+- [ ] Pi 5 boot autostart and recovery
+- [ ] OS-level keyboard/cursor lockdown
+
+### Decisions log (ALG-6)
+
+| Date | Decision | Rationale |
+|------|----------|-----------|
+| 2026-06-10 | Single `index.html` with config flag + `?production=1` | Avoid duplicate entry points; matches ticket options |
+| 2026-06-10 | Chromium `--kiosk` as primary fullscreen path | No `requestFullscreen()` permission prompts |
+| 2026-06-10 | `python3 -m http.server` in deploy script | Matches dev setup; nginx/caddy optional later |
+
+---
+
 ## Software stack (current)
 
 | Layer | Choice |
@@ -85,4 +122,5 @@ Tracks [ALG-5](https://linear.app/algorithmic-absolution/issue/ALG-5/define-targ
 
 ## Changelog
 
+- **2026-06-10** — ALG-6: production kiosk mode, `avatarSpeak` API, `deploy/` scripts.
 - **2026-06-10** — Created context doc; seeded ALG-5 with Pi 5 confirmed, other fields TBD.
