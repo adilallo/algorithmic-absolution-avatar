@@ -194,6 +194,11 @@
           ttsLang: "en-GB",
           ttsVoice: "en-GB-Standard-A",
           lipsyncLang: "en",
+          // Calm, gaze-locked oracle: hold eye contact, minimal idle/speaking head drift.
+          avatarIdleEyeContact: 0.85,
+          avatarIdleHeadMove: 0.2,
+          avatarSpeakingEyeContact: 0.9,
+          avatarSpeakingHeadMove: 0.3,
         },
         (ev) => {
           if (ev.lengthComputable) {
@@ -205,6 +210,7 @@
       hideStatus();
       if (!isProduction) {
         speakBtn.disabled = false;
+        window.__head = head;
       }
 
       window.avatarSpeak = (text) => {

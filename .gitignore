@@ -1,3 +1,9 @@
 .DS_Store
 config.js
 avatar.glb
+
+# Local Blender autosaves & dated safety backups (kept on disk, not committed)
+*.blend1
+*.backup-*.blend
+*.backup-*.glb
+*.precornerseal-*.blend

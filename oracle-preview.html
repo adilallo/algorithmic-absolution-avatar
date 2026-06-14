@@ -46,24 +46,26 @@
       tintR: 0.55, tintG: 0.78, tintB: 1.18,   // blue phosphor tint
       mono: 0.92,                              // 0=full color … 1=full monochrome
       scanIntensity: 0.18, scanCount: 900.0,   // CRT scanlines
-      vignette: 1.2,                           // edge darkening
-      grain: 0.08,                             // film grain
-      bloom: 0.85, bloomRadius: 0.6, bloomThresh: 0.62,
-      rimIntensity: 34.0,                      // backlit halo strength
+      vignette: 1.7,                           // edge darkening
+      grain: 0.07,                             // film grain
+      bloom: 0.55, bloomRadius: 0.5, bloomThresh: 0.72,
+      rimIntensity: 22.0,                      // backlit halo strength
     };
 
     const head = new TalkingHead(avatarEl, {
       ttsEndpoint: "none", lipsyncModules: [],
-      cameraView: "upper",
-      lightAmbientColor: 0x4a5d82, lightAmbientIntensity: 0.55,
-      lightDirectColor: 0x88a6da, lightDirectIntensity: 4.2,
+      cameraView: "head",
+      lightAmbientColor: 0x4a5d82, lightAmbientIntensity: 0.20,
+      lightDirectColor: 0x88a6da, lightDirectIntensity: 1.4,
       lightDirectPhi: 1.0, lightDirectTheta: 1.4,
       lightSpotIntensity: 0,
     });
 
     const avatarUrl = new URLSearchParams(location.search).get("url") || "./avatar.glb";
 
-    await head.showAvatar({ url: avatarUrl, body: "F", avatarMood: "neutral", lipsyncLang: "en" },
+    await head.showAvatar({ url: avatarUrl, body: "F", avatarMood: "neutral", lipsyncLang: "en",
+        avatarIdleEyeContact: 0.85, avatarIdleHeadMove: 0.2,        // calm, gaze-locked oracle
+        avatarSpeakingEyeContact: 0.9, avatarSpeakingHeadMove: 0.3 },
       (ev)=>{ if(ev.lengthComputable) hud.textContent = "loading "+Math.round(ev.loaded/ev.total*100)+"%"; });
 
     // --- Scene dressing: dark void + backlit halo rim light -------------------
@@ -75,6 +77,12 @@
     rim.position.set(0.0, 1.85, -0.9);               // behind & above the head
     if (headBone) { rim.target = headBone; } else { rim.target.position.set(0,1.6,0); scene.add(rim.target); }
     scene.add(rim);
+
+    // Head-and-shoulders portrait framing (telephoto; tuned for the MPFB oracle base).
+    camera.fov = 10;
+    camera.position.set(0, 1.60, 2.95);
+    camera.updateProjectionMatrix();
+    if (head.controls) { head.controls.target.set(0, 1.55, 0); head.controls.update(); }
 
     // --- CRT grade shader (mono+tint, scanlines, vignette, grain) -------------
     const CRT = {
@@ -113,7 +121,10 @@
 
     function sizeAll(){
       const w = avatarEl.clientWidth, h = avatarEl.clientHeight;
-      composer.setSize(w,h); bloom.setSize(w,h);
+      composer.setSize(w,h);
+      // Half-res bloom: ~4x cheaper fragment cost (the dominant post-processing pass on the Pi 5).
+      // The halo is soft, so the lower-res bloom is visually indistinguishable.
+      bloom.setSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
       crtPass.uniforms.res.value.set(w,h);
     }
     sizeAll(); window.addEventListener("resize", sizeAll);
