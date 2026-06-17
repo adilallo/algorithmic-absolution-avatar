@@ -1,11 +1,12 @@
-# TTS proxy (ALG-8)
+# Kiosk proxy (ALG-8 TTS + ALG-15 absolution)
 
-A zero-dependency Node server that does two things on **one `127.0.0.1` origin**:
+A zero-dependency Node server that does three things on **one `127.0.0.1` origin**:
 
-1. **Serves the repo root as static files** — replaces `python3 -m http.server` so the kiosk page and the `/tts` endpoint share an origin (no CORS).
+1. **Serves the repo root as static files** — replaces `python3 -m http.server` so the kiosk page and the `/tts` + `/absolution` endpoints share an origin (no CORS).
 2. **`POST /tts`** — injects the Google Cloud TTS API key **server-side** and forwards the request to Google. The browser never sees the key.
+3. **`POST /absolution`** (ALG-15) — takes punch-card category totals and returns the absolution **text** for the avatar to speak, by querying the Magisterium AI API with a key injected **server-side**. See [absolution.js](absolution.js).
 
-The key lives only in `deploy/tts-proxy/.env` (gitignored) as `GOOGLE_TTS_API_KEY`. It is read via `process.env`, never written into a response, and never served as a static file. After this proxy, the Google key appears in **neither client source nor the network tab** — the done-when for ALG-8.
+Both keys live only in `deploy/tts-proxy/.env` (gitignored) — `GOOGLE_TTS_API_KEY` and `MAGISTERIUM_API_KEY`. They are read via `process.env`, never written into a response, and never served as a static file. So the keys appear in **neither client source nor the network tab** — the done-when for ALG-8 and the key-storage requirement of ALG-15.
 
 ## Run
 
@@ -34,10 +35,47 @@ TalkingHead builds its request as `fetch(ttsEndpoint + (ttsApikey ? "?key="+ttsA
 
 Configure all of these via env vars (see `.env.example`). As defense in depth, also restrict the Google key to the Text-to-Speech API and set a Cloud billing budget alert.
 
+## Absolution endpoint (ALG-15)
+
+`POST /absolution` accepts punch-card **category totals** and returns the **absolution text** for the avatar to speak. The avatar app calls it same-origin via `window.requestAbsolution(totals)` (in `index.html`), which then passes the text to `window.avatarSpeak()`.
+
+Request body — either a flat map or a list (both accepted):
+
+```jsonc
+// flat map
+{ "taking_more_than_needed": 3, "underpaid_labor": 1, "unearned_advantage": 2 }
+// or a list
+{ "categories": [ { "label": "Taking more than needed", "count": 3 } ] }
+```
+
+Response:
+
+```json
+{ "text": "Your account is received...", "source": "magisterium", "model": "magisterium-1" }
+```
+
+- **`source: "magisterium"`** — generated live by the LLM. **`source: "fallback"`** — a pre-written canned absolution (see below).
+- **Provider/model:** Magisterium AI, `magisterium-1` (OpenAI-compatible chat completions, grounded in Catholic magisterial sources with citations). Chosen because the piece's absolution voice *is* Catholic-magisterial; endpoint/model are env-overridable.
+- **API-key storage:** `MAGISTERIUM_API_KEY` in `.env` only — server-side, never in the browser.
+- **Latency budget (card → speech):** measured live latency is **~5–20 s** — Magisterium's RAG retrieval is slow. The proxy waits at most `ABSOLUTION_TIMEOUT_MS` (default **30 s**) then falls back to canned. ⚠️ This is the open UX problem: 5–20 s of silence after a card is inserted is past gallery patience. The real fixes are a **holding utterance** while waiting and/or **caching/pre-baking** responses (the punch-card input space is tiny) to take the LLM off the hot path. TTS adds ~1–2 s.
+- **Fallback when the API is down:** missing key, timeout, upstream error, empty response, or over the daily cap → a canned liturgical absolution (`source:"fallback"`), so the ritual never visibly stalls. The client (`index.html`) has its own canned line too, covering the case where the proxy itself is unreachable.
+- **Cost backstop:** `ABSOLUTION_DAILY_REQUEST_CAP` (default **300** live calls/day, persisted to `.absolution-usage.json`); over the cap it serves canned text instead of spending quota.
+
+Test it (no key needed — returns canned; with a key — returns live text):
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/absolution \
+  -H 'Content-Type: application/json' \
+  -d '{"taking_more_than_needed":3,"underpaid_labor":1}' | python3 -m json.tool
+curl -s http://127.0.0.1:8765/absolution/health | python3 -m json.tool
+```
+
 ## Endpoints
 
-| Method | Path          | Purpose                                          |
-| ------ | ------------- | ------------------------------------------------ |
-| POST   | `/tts`        | Forward a TalkingHead TTS request to Google.     |
-| GET    | `/tts/health` | Liveness + `{keyConfigured, dailyChars}`.        |
-| GET    | `/*`          | Static files from the repo root.                 |
+| Method | Path                 | Purpose                                                       |
+| ------ | -------------------- | ------------------------------------------------------------- |
+| POST   | `/tts`               | Forward a TalkingHead TTS request to Google.                  |
+| GET    | `/tts/health`        | Liveness + `{keyConfigured}`.                                 |
+| POST   | `/absolution`        | Category totals → absolution text (Magisterium, ALG-15).      |
+| GET    | `/absolution/health` | Liveness + `{keyConfigured, model, dailyRequests, …}`.        |
+| GET    | `/*`                 | Static files from the repo root.                              |
