@@ -11,6 +11,9 @@ ExecStart=/home/pi/algorithmic-absolution-avatar/deploy/start-avatar.sh
 Restart=always
 RestartSec=5
 Environment=DISPLAY=:0
+# Google TTS key for the proxy (ALG-8). server.js also reads this file directly, so the
+# leading "-" makes it optional; keep the key here OR in deploy/tts-proxy/.env, never in git.
+EnvironmentFile=-/home/pi/algorithmic-absolution-avatar/deploy/tts-proxy/.env
 
 [Install]
 WantedBy=multi-user.target

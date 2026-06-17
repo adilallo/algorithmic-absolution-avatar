@@ -159,13 +159,10 @@
       });
     }
 
-    const apiKey = window.TALKINGHEAD_TTS_APIKEY;
-    if (window.__TH_NO_CONFIG || !apiKey || apiKey === "your-key-here") {
-      handleFatalError(
-        "Missing config.js. Copy config.example.js to config.js and set your Google TTS API key."
-      );
-      throw new Error("TalkingHead: missing TTS API key");
-    }
+    // TTS goes through a same-origin server-side proxy (ALG-8): the Google API key lives only in
+    // deploy/tts-proxy/.env, never in client source or the network tab. No client key is required.
+    // The proxy also serves these static files, so "/tts" resolves on the page's own origin.
+    const ttsProxy = window.TALKINGHEAD_TTS_PROXY || "/tts";
 
     // --- Leveled-oracle render-layer tunables (ported from oracle-leveled-preview.html) ---
     const TAU = Math.PI*2, fract = x => x - Math.floor(x);
@@ -231,8 +228,9 @@
 
     // Warm sanctuary lighting (from the leveled preview) + production TTS.
     const head = new TalkingHead(avatarEl, {
-      ttsEndpoint: "https://eu-texttospeech.googleapis.com/v1beta1/text:synthesize",
-      ttsApikey: apiKey,
+      // Same-origin proxy that injects the Google key server-side and forwards to
+      // v1beta1/text:synthesize. ttsApikey is intentionally omitted so TalkingHead appends no ?key=.
+      ttsEndpoint: ttsProxy,
       lipsyncModules: ["en"],
       cameraView: "head",
       lightAmbientColor: 0xfff1dc, lightAmbientIntensity: 0.42,

@@ -2,6 +2,11 @@
 config.js
 avatar.glb
 
+# TTS proxy secrets & local state (ALG-8) — server-side key never committed
+deploy/tts-proxy/.env
+deploy/tts-proxy/.usage.json
+deploy/tts-proxy/node_modules/
+
 # Local Blender autosaves & dated safety backups (kept on disk, not committed)
 *.blend1
 *.backup-*.blend

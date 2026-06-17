@@ -11,8 +11,8 @@ URL="http://127.0.0.1:${PORT}/?production=1"
 
 cd "${REPO_ROOT}"
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "python3 is required to serve static files." >&2
+if ! command -v node >/dev/null 2>&1; then
+  echo "node is required to run the TTS proxy (deploy/tts-proxy/server.js)." >&2
   exit 1
 fi
 
@@ -32,9 +32,10 @@ if [[ -z "${CHROMIUM}" ]]; then
   exit 1
 fi
 
-# Start static server if not already listening
-if ! curl -sf "http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
-  python3 -m http.server "${PORT}" --bind 127.0.0.1 &
+# Start the TTS proxy (it also serves the static files) if not already listening.
+# The proxy reads its Google key from deploy/tts-proxy/.env — never from a served file.
+if ! curl -sf "http://127.0.0.1:${PORT}/tts/health" >/dev/null 2>&1; then
+  PORT="${PORT}" node "${REPO_ROOT}/deploy/tts-proxy/server.js" &
   SERVER_PID=$!
   trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
   sleep 1

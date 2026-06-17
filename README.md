@@ -6,15 +6,15 @@ Built on [TalkingHead](https://github.com/met4citizen/TalkingHead) (Three.js + G
 
 ## Setup
 
-1. Copy `config.example.js` to `config.js` and set a [Google Cloud Text-to-Speech](https://cloud.google.com/text-to-speech/docs/before-you-begin) API key.
-2. Add a TalkingHead-compatible GLB at `avatar.glb` (Mixamo-style rig + ARKit + Oculus visemes — e.g. a [Ready Player Me](https://readyplayer.me/) export with `?morphTargets=ARKit,Oculus+Visemes,...` appended). Or set `window.TALKINGHEAD_AVATAR_URL` in `config.js` to load from a URL instead.
-3. Serve over HTTP (ES modules will not load from `file://`):
+1. Set the TTS key **server-side** (never in the browser): copy `deploy/tts-proxy/.env.example` to `deploy/tts-proxy/.env` and set `GOOGLE_TTS_API_KEY` (a [Google Cloud Text-to-Speech](https://cloud.google.com/text-to-speech/docs/before-you-begin) key).
+2. Copy `config.example.js` to `config.js`. It holds **no secrets** — just the production flag and the avatar URL. Add a TalkingHead-compatible GLB at `avatar.glb` (Mixamo-style rig + ARKit + Oculus visemes — e.g. a [Ready Player Me](https://readyplayer.me/) export with `?morphTargets=ARKit,Oculus+Visemes,...` appended), or set `window.TALKINGHEAD_AVATAR_URL` in `config.js`.
+3. Run the proxy, which serves the page **and** the `/tts` endpoint from one origin (ES modules will not load from `file://`):
 
 ```bash
-python3 -m http.server 8765
+node deploy/tts-proxy/server.js
 ```
 
-Open `http://127.0.0.1:8765/`, type text, press Enter or click **Speak**.
+Open `http://127.0.0.1:8765/`, type text, press Enter or click **Speak**. See [deploy/tts-proxy/README.md](deploy/tts-proxy/README.md) for how the proxy keeps the key off the client.
 
 ## Production / kiosk
 
@@ -35,5 +35,5 @@ avatarSpeak("Test absolution.");
 
 ## Notes
 
-- `config.js` and `avatar.glb` are gitignored — they stay local.
-- Client-side API keys are fine for local experiments only. For anything public, proxy TTS through your backend (see TalkingHead Appendix B).
+- `config.js`, `avatar.glb`, and `deploy/tts-proxy/.env` are gitignored — they stay local.
+- The Google TTS key lives only in `deploy/tts-proxy/.env` (server-side) and never reaches the browser — no key in client source or the network tab (ALG-8). The proxy follows TalkingHead's "Appendix B" pattern.
