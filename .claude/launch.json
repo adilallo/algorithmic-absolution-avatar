@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "oracle",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8767"],
+      "port": 8767
+    },
+    {
+      "name": "verify",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8771", "--directory", "/Users/Vinod/Documents/GitHub/algorithmic-absolution-avatar"],
+      "port": 8771
+    }
+  ]
+}

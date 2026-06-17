@@ -13,8 +13,9 @@ window.TALKINGHEAD_TTS_APIKEY = "your-key-here";
 // On the Pi, set to true in local config.js. Or append ?production=1 to the URL for testing.
 window.TALKINGHEAD_PRODUCTION = false;
 
-// Avatar: by default the page loads ./avatar.glb from this folder.
-// Drop a TalkingHead-compatible GLB there (Mixamo rig + ARKit + Oculus visemes,
-// e.g. a Ready Player Me export with ?morphTargets=ARKit,Oculus+Visemes,...).
-// To load from a URL instead, uncomment and set:
-// window.TALKINGHEAD_AVATAR_URL = "https://example.com/your-avatar.glb";
+// Avatar: the CRT-oracle deliverable, committed in the repo and served from the root.
+// This is the production avatar for the Office of Algorithmic Absolution.
+window.TALKINGHEAD_AVATAR_URL = "docs/base/oracle-mpfb.glb";
+// To use a different avatar, point this at any TalkingHead-compatible GLB
+// (Mixamo rig + ARKit + Oculus visemes), a local path or an https URL. Unset it to
+// fall back to ./avatar.glb dropped in this folder.
