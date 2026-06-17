@@ -25,42 +25,10 @@
     margin: 0;
     cursor: none;
   }
-  body.production #controls {
-    display: none;
-  }
   #avatar {
     flex: 1;
     width: 100%;
     min-height: 0;
-  }
-  #controls {
-    display: flex;
-    gap: 8px;
-    padding: 12px;
-    background: #181818;
-    border-top: 1px solid #2a2a2a;
-  }
-  #text {
-    flex: 1;
-    padding: 10px 12px;
-    font-size: 16px;
-    border: 1px solid #333;
-    border-radius: 6px;
-    background: #111;
-    color: #fff;
-  }
-  #speak {
-    padding: 10px 18px;
-    font-size: 16px;
-    border: 0;
-    border-radius: 6px;
-    background: #2f7cff;
-    color: #fff;
-    cursor: pointer;
-  }
-  #speak:disabled {
-    background: #444;
-    cursor: not-allowed;
   }
   #status {
     position: absolute;
@@ -75,14 +43,56 @@
   }
   #status.hidden { display: none; }
   #status.error { background: rgba(140, 30, 30, 0.85); }
+
+  /* Dev harm-picker (ALG-14): pick categories -> requestAbsolution -> avatar + LLM respond. */
+  #harm-panel {
+    padding: 8px 10px;
+    background: #141414;
+    border-top: 1px solid #2a2a2a;
+  }
+  body.production #harm-panel { display: none; }
+  #harm-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    margin-bottom: 7px;
+  }
+  #harm-list label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    font-size: 11px;
+    border: 1px solid #333;
+    border-radius: 5px;
+    background: #111;
+    cursor: pointer;
+    user-select: none;
+  }
+  #harm-list label:hover { border-color: #2f7cff; }
+  #harm-list input { accent-color: #2f7cff; margin: 0; }
+  #harm-actions { display: flex; gap: 8px; align-items: center; }
+  #harm-panel button {
+    padding: 6px 12px;
+    font-size: 13px;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  #harm-clear { background: #333; color: #fff; }
+  #harm-send { background: #2f7cff; color: #fff; }
+  #harm-send:disabled { background: #444; cursor: not-allowed; }
 </style>
 </head>
 <body>
   <div id="avatar"></div>
   <div id="status">Loading...</div>
-  <div id="controls">
-    <input id="text" type="text" placeholder="Type something for the avatar to say..." value="Hello! I am a talking head." />
-    <button id="speak" disabled>Speak</button>
+  <div id="harm-panel">
+    <div id="harm-list"></div>
+    <div id="harm-actions">
+      <button id="harm-send" type="button" disabled>Submit</button>
+      <button id="harm-clear" type="button">Clear</button>
+    </div>
   </div>
 
   <script src="./config.js" onerror="window.__TH_NO_CONFIG = true"></script>
@@ -116,8 +126,6 @@
     }
 
     const statusEl = document.getElementById("status");
-    const speakBtn = document.getElementById("speak");
-    const textEl = document.getElementById("text");
     const avatarEl = document.getElementById("avatar");
 
     function showStatus(msg, isError = false) {
@@ -289,7 +297,7 @@
           if (!isProduction) showStatus(`Speak failed: ${err}`, true);
         }
       };
-      if (!isProduction) { speakBtn.disabled = false; window.__head = head; }
+      if (!isProduction) { window.__head = head; }
 
       // ALG-15: punch-card category totals -> absolution text -> speech. This is the callable
       // seam for the sensor/orchestrator (wired in ALG-13). POSTs the totals to the same-origin
@@ -298,9 +306,51 @@
       // canned line, so even a dead proxy never leaves a visitor with silence.
       const absolutionEndpoint = window.ABSOLUTION_ENDPOINT || "/absolution";
       const CLIENT_FALLBACK_ABSOLUTION =
-        "Your confession is received and reconciled. For what you have declared, let your penance " +
-        "be one deliberate repair, and the ledger will hold no grievance against you. Go in peace.";
+        "Your declaration has been received. The harm you have named is acknowledged. No record is kept.";
+
+      // Category id->label, fetched once, used to read the declared harms back aloud.
+      let __absCats = null;
+      async function absCategories() {
+        if (__absCats) return __absCats;
+        try { const r = await fetch(absolutionEndpoint + "/categories"); if (r.ok) __absCats = (await r.json()).categories || []; }
+        catch (e) { /* read-back is best-effort */ }
+        return __absCats || [];
+      }
+      const speakList = (a) =>
+        a.length <= 1 ? a.join("") : a.length === 2 ? a[0] + " and " + a[1]
+          : a.slice(0, -1).join(", ") + ", and " + a[a.length - 1];
+      // Best-effort: which declared harms to read back, from punched ids / 1-based indices / labels.
+      function declaredLabels(totals, cats) {
+        const raw = Array.isArray(totals) ? totals
+          : (totals && (totals.punched || totals.categories || totals.selections)) || [];
+        const arr = Array.isArray(raw) ? raw : [];
+        const ids = new Set();
+        for (let t of arr) {
+          if (t && typeof t === "object") t = t.id ?? t.label ?? t.name ?? t.index;
+          if (t == null) continue;
+          const s = String(t).trim();
+          let c = null;
+          if (/^\d+$/.test(s)) c = cats[parseInt(s, 10) - 1];
+          else {
+            const n = s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+            c = cats.find((x) => x.id === s || x.id.replace(/_/g, " ") === n || x.label.toLowerCase() === s.toLowerCase());
+          }
+          if (c) ids.add(c.id);
+        }
+        return cats.filter((c) => ids.has(c.id)).map((c) => c.label);
+      }
+
       window.requestAbsolution = async (categoryTotals) => {
+        // Read the declared harms back + a holding line, spoken immediately, to fill the LLM wait
+        // (Magisterium can take ~25 s). speakText queues, so the response plays after this preamble.
+        try {
+          const labels = declaredLabels(categoryTotals, await absCategories()).map((l) => l.toLowerCase());
+          const readback = labels.length
+            ? "You have declared the following: " + speakList(labels) + "."
+            : "You have declared no category of harm.";
+          window.avatarSpeak("Your card has been received and is being processed. " + readback);
+        } catch (e) { /* preamble is best-effort */ }
+
         let text = "", source = "fallback";
         try {
           const r = await fetch(absolutionEndpoint, {
@@ -349,8 +399,8 @@
     const scene = head.scene, camera = head.camera, renderer = head.renderer;
     renderer.toneMapping = THREE.NoToneMapping;
     scene.background = new THREE.Color(ICON.groundR, ICON.groundG, ICON.groundB);
-    camera.fov = 22; camera.position.set(0,1.0,6.10); camera.updateProjectionMatrix();
-    if (head.controls){ head.controls.target.set(0,1.0,0); head.controls.update(); }
+    camera.fov = 8; camera.position.set(0,1.66,6.10); camera.updateProjectionMatrix();
+    if (head.controls){ head.controls.target.set(0,1.66,0); head.controls.update(); }
 
     // Materials (unchanged icon grade)
     scene.traverse((o)=>{
@@ -965,7 +1015,7 @@
     function playWide(name, dur, fov){
       camFov(fov, 900);
       head.playGesture(name, dur, false, 900);
-      setTimeout(()=> camFov(22, 900), (dur-0.9)*1000);
+      setTimeout(()=> camFov(8, 900), (dur-0.9)*1000);   // return to the resting heart-up lens (matches line ~402)
     }
     head.gestureTemplates["speak"] = {
       "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.10,y:-0.30,z:-0.80},
@@ -1056,7 +1106,7 @@
       // The heart is now a node inside the avatar GLB, parented to the Spine2 bone and seated in a chest
       // socket — so it follows every pose/gesture/breath through the rig (no per-frame repositioning needed).
       // This block only (a) pins the framing and (b) drives the furnace glow / heartbeat off the painted texture.
-      window.__cam = { px:0, py:1.0, pz:6.10, tx:0, ty:1.0, tz:0 };   // full-body framing: fits the whole figure + halo (bbox y -0.03..2.04, centred ~1.0) with margin
+      window.__cam = { px:0, py:1.66, pz:6.10, tx:0, ty:1.66, tz:0 };   // heart-up framing: bottom edge at the Sacred Heart (y~1.34), top above the halo (y~2.04), centred ~1.66 — pairs with the fov-8 lens above
       if (head.controls) head.controls.enabled = false;
       const EMIS = window.__heartEmis = { base:1.0, beat:1.0, flick:0.12 };
       const mats = window.__heartMats = [];   // baked-heart materials we drive for the heartbeat glow
@@ -1098,14 +1148,40 @@
     }
 
     if (!isProduction) {
-      function speakNow() {
-        const text = textEl.value.trim();
-        if (!text) return;
-        window.avatarSpeak(text);
-      }
-      speakBtn.addEventListener("click", speakNow);
-      textEl.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter") { ev.preventDefault(); speakNow(); }
+      // Dev harm-picker (ALG-14): fetch the canonical categories, render checkboxes, and on send
+      // POST the punched ids through window.requestAbsolution -> /absolution -> avatar + LLM.
+      const harmList = document.getElementById("harm-list");
+      const harmSend = document.getElementById("harm-send");
+      const harmClear = document.getElementById("harm-clear");
+      const absBase = window.ABSOLUTION_ENDPOINT || "/absolution";
+      fetch(absBase + "/categories")
+        .then((r) => (r.ok ? r.json() : Promise.reject("HTTP " + r.status)))
+        .then((d) => {
+          for (const c of (d && d.categories) || []) {
+            const label = document.createElement("label");
+            const cb = document.createElement("input");
+            cb.type = "checkbox";
+            cb.value = c.id;
+            label.append(cb, document.createTextNode(" " + c.label));
+            harmList.append(label);
+          }
+          harmSend.disabled = false;
+        })
+        .catch((e) => console.warn("[harm-picker] could not load categories:", e));
+      harmClear.addEventListener("click", () => {
+        harmList.querySelectorAll("input:checked").forEach((i) => { i.checked = false; });
+      });
+      harmSend.addEventListener("click", async () => {
+        if (typeof window.requestAbsolution !== "function") { console.warn("[avatar] not ready yet"); return; }
+        const punched = [...harmList.querySelectorAll("input:checked")].map((i) => i.value);
+        harmSend.disabled = true;
+        try {
+          await window.requestAbsolution({ punched }); // avatar speaks the read-back + response; no on-screen text
+        } catch (err) {
+          console.warn("[absolution] request failed:", err);
+        } finally {
+          harmSend.disabled = false;
+        }
       });
     }
 

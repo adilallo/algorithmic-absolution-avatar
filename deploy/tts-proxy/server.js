@@ -54,15 +54,15 @@ const ALLOWED_VOICES = list(process.env.TTS_ALLOWED_VOICES,
   'en-US-Standard-C,en-US-Standard-E,en-US-Standard-F,en-US-Standard-G,en-US-Standard-H');
 const ALLOWED_LANGS = list(process.env.TTS_ALLOWED_LANGS, 'en-GB,en-US');
 const MAX_INPUT_CHARS = parseInt(process.env.TTS_MAX_INPUT_CHARS || '2000', 10); // spoken chars per request
-const DAILY_CHAR_CAP = parseInt(process.env.TTS_DAILY_CHAR_CAP || '50000', 10);  // billing backstop
+const DAILY_CHAR_CAP = parseInt(process.env.TTS_DAILY_CHAR_CAP || '200000', 10); // billing backstop (resets UTC midnight). Raised from 50000: the 1800-char reads burn it ~3-4x faster. NOTE: still a real Google-TTS-billing guard — tune to the free tier for production.
 const MAX_BODY_BYTES = parseInt(process.env.TTS_MAX_BODY_BYTES || '262144', 10); // 256 KB
-const MAX_INFLIGHT = parseInt(process.env.TTS_MAX_INFLIGHT || '2', 10);
+const MAX_INFLIGHT = parseInt(process.env.TTS_MAX_INFLIGHT || '24', 10); // a long absolution splits into ~15-20 /tts chunks (1 per sentence); 2 starved them -> 429 -> silence
 const FETCH_TIMEOUT_MS = parseInt(process.env.TTS_FETCH_TIMEOUT_MS || '15000', 10); // upstream call cap
 const ABS_MAX_INFLIGHT = parseInt(process.env.ABSOLUTION_MAX_INFLIGHT || '2', 10);  // /absolution concurrency cap
 
 // --- Rate limiting: token buckets (in-memory; one process) -----------------
-const globalBucket = makeBucket(10, 10 / 60); // ~10 req/min sustained, burst 10
-const ipBuckets = new Map();                  // per-IP: 1 req/s sustained, burst 5
+const globalBucket = makeBucket(60, 2);       // burst 60, ~2/s — one long absolution = ~15-20 /tts chunks
+const ipBuckets = new Map();                  // per-IP: burst 60, ~5/s (set in ipBucket() below)
 const IP_BUCKET_CAP = 5000;                   // prune idle buckets past this (loopback => ~1 entry)
 let inFlight = 0;
 let absInFlight = 0;
@@ -95,6 +95,10 @@ const server = http.createServer(async (req, res) => {
   }
   if (pathname === '/absolution/health') {
     return sendJson(res, 200, { ok: true, ...absolution.health() }); // never includes the key
+  }
+  if (pathname === '/absolution/categories') {
+    // Canonical id+label list for the dev harm-picker UI (keeps it in sync with absolution.js).
+    return sendJson(res, 200, { categories: absolution.CATEGORIES });
   }
   if (pathname === '/absolution') {
     if (req.method === 'OPTIONS') return send(res, 204, 'text/plain', '');
@@ -303,7 +307,7 @@ function ipBucket(ip) {
         if (Math.min(v.capacity, v.tokens + ((now - v.last) / 1000) * v.refillPerSec) >= v.capacity) ipBuckets.delete(k);
       }
     }
-    b = makeBucket(5, 1);
+    b = makeBucket(60, 5);
     ipBuckets.set(ip, b);
   }
   return b;

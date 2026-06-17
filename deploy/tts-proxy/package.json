@@ -4,6 +4,7 @@
   "private": true,
   "description": "Static + Google Cloud TTS proxy for the Office of Algorithmic Absolution kiosk (ALG-8). Zero dependencies.",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   }
 }
