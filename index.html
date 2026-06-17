@@ -167,112 +167,78 @@
       throw new Error("TalkingHead: missing TTS API key");
     }
 
-    // CRT-oracle render-layer tunables (ported from oracle-preview.html, baked to the
-    // values the artist signed off on). Exposed on window for live tuning in the console;
-    // e.g. `ORACLE.mono = 0; ORACLE.bloom = 0` shows the raw, ungraded avatar.
-    const ORACLE = window.ORACLE = {
-      tintR: 0.55, tintG: 0.78, tintB: 1.18,   // blue phosphor tint
-      mono: 0.92,                              // 0=full color … 1=full monochrome
-      scanIntensity: 0.18, scanCount: 900.0,   // CRT scanlines
-      vignette: 1.7,                           // edge darkening
-      grain: 0.07,                             // film grain
-      bloom: 0.55, bloomRadius: 0.5, bloomThresh: 0.72,
-      rimIntensity: 22.0,                      // backlit halo strength
+    // --- Leveled-oracle render-layer tunables (ported from oracle-leveled-preview.html) ---
+    const TAU = Math.PI*2, fract = x => x - Math.floor(x);
+
+    const ICON = window.ICON = {
+      // pale-porcelain + gold-leaf direction (ref-matched): gold-push pulled back so the flesh stays pale.
+      // crackle/tooth pulled WAY down so the body reads as smooth porcelain and the dark ground stays clean
+      // (the old high crack values mosaic'd the flat background); vignette/ground darkened for the deep-corner falloff.
+      crackStrength:0.06, crackScale:58.0, toothAmount:0.02, terreVerte:0.05,
+      duoAmount:0.10, desat:0.92, vignette:1.05, exposure:0.84,
+      groundR:0.05, groundG:0.04, groundB:0.028,
+      craqGlobal:0.0,   // icon overlay texture REMOVED (was a whole-frame craquelure); body crackle back to smooth porcelain
     };
 
+    // Warm "sanctuary" atmosphere: a radial glow bursting behind the halo + a floor pool of light, with the
+    // figure masked out by luminance so the glow fills the dark ground (and corners) without blowing out the body.
+    const ATMO = window.ATMO = {
+      on:1, glowCx:0.50, glowCy:0.84, haloAmt:0.85, haloTight:5.0,
+      floorAmt:0.90, floorTop:0.32, floorWidth:0.60,
+      warmR:1.0, warmG:0.84, warmB:0.52,
+      bgLo:0.30, bgHi:0.55,
+    };
+
+    // Leveled (representational) layer knobs — combine/refine these live
+    const LV = window.LV = {
+      on:1,
+      // gold-field grade effects zeroed for the pale full-body figure (clean ground like the reference);
+      // kept as knobs so the bureaucratic gold-field can be dialed back if framing returns to a bust.
+      ledgerAmt:0.0, ledgerRows:36.0, ledgerCols:26.0,    // gold-field as ruled indulgence form
+      rayAmt:0.0, rayN:46.0, rayFall:0.46,                 // analytic glory sunburst behind head
+      crossAmt:0.0,                                        // cruciform nimbus bars
+      headCx:0.55, headCy:0.57,                            // note: vUv.y is 0 at bottom, 1 at top
+      heartCx:0.50, heartCy:0.25, heartScale:0.092, heartYoff:0.62,  // Sacred Heart on the sternum
+      heartAmt:0.85, thornAmt:0.35, crossTop:0.40,
+      bpm:62.0, beatDepth:1.0,                             // lub-dub
+      gestureBeat:34.0, gestureJit:5.0,                    // slow auto-bless
+      // discrete emblems MOVED from the gold field onto the body as gold-leaf tattoos (baked into OracleSkin).
+      // amounts zeroed here; geometry/uniforms kept so they can be dialed back into the field if wanted.
+      christoAmt:0.0, christoScale:0.10, christoCx:0.22, christoCy:0.30,
+      sealAmt:0.0, sealC:[0.80,0.22], sealScale:0.085, sealPress:0.0,
+      mandorlaAmt:0.0, mandorlaCx:0.52, mandorlaCy:0.45, mandorlaScale:0.30,
+      keysAmt:0.0, keysScale:0.16, keysReveal:1,
+      fleckAmt:0.0, fleckDensity:0.04, shred:0.0,
+      tallyAmt:0.0, letterAmt:0.0, letterRadius:0.165,
+      eyeAmt:0.0, eyeN:14.0, eyeRadius:0.225, eyeScale:0.026,   // ophanim eye-ring removed (set eyeAmt>0 to bring it back)
+    };
+
+    // --- Hieratic idle ---------------------------------------------------------------------------------------
+    // Replaces TalkingHead's default idle (it cycles the figure through casual weight-shift stances:
+    // side/hip/wide — relaxed, human, anti-iconic — and its breathing is a no-op because this GLB has no
+    // chestInhale morph). Instead we lock a frontal, symmetric "oracle" standing pose and layer subtle life
+    // (slow breath + barely-there sway) onto the Mixamo spine/axial bones every frame — the same rig the
+    // gestures drive. Everything here is live-tunable on window.IDLE.
+    const IDLE = window.IDLE = {
+      on:1,
+      breathBpm:11.0,                                              // slow, meditative breaths per minute
+      breathSpine1:0.034, breathSpine2:0.026, breathNeck:0.012, breathHead:0.010,  // chest-expansion amplitudes (rad)
+      swayPeriod:26.0,                                             // seconds for one lateral sway cycle
+      swayLean:0.013, swayTurn:0.010, swayHead:0.011,              // spine lean / hip turn / head drift (rad)
+    };
+    const __idleQ = new THREE.Quaternion();
+    const __axX = new THREE.Vector3(1,0,0), __axY = new THREE.Vector3(0,1,0), __axZ = new THREE.Vector3(0,0,1);
+
+    // Warm sanctuary lighting (from the leveled preview) + production TTS.
     const head = new TalkingHead(avatarEl, {
       ttsEndpoint: "https://eu-texttospeech.googleapis.com/v1beta1/text:synthesize",
       ttsApikey: apiKey,
       lipsyncModules: ["en"],
-      // Head-and-shoulders portrait framing + dim cool oracle lighting (matches oracle-preview.html).
       cameraView: "head",
-      lightAmbientColor: 0x4a5d82, lightAmbientIntensity: 0.20,
-      lightDirectColor: 0x88a6da, lightDirectIntensity: 1.4,
-      lightDirectPhi: 1.0, lightDirectTheta: 1.4,
-      lightSpotIntensity: 0,
+      lightAmbientColor: 0xfff1dc, lightAmbientIntensity: 0.42,
+      lightDirectColor: 0xffe9c8, lightDirectIntensity: 0.62,
+      lightDirectPhi: 0.6, lightDirectTheta: 0.2, lightSpotIntensity: 0,
     });
-
-    // --- CRT oracle render-layer ---------------------------------------------
-    // Ported from oracle-preview.html: dark void + backlit halo rim light,
-    // telephoto head-and-shoulders framing, and an EffectComposer grade
-    // (bloom → blue monochrome + scanlines + vignette + grain). Base-independent;
-    // the Pi-5 half-res-bloom optimization is preserved. Call once after showAvatar.
-    function setupOracleRenderLayer() {
-      const scene = head.scene, camera = head.camera, renderer = head.renderer;
-      scene.background = new THREE.Color(0x05080e);
-
-      const headBone = head.armature?.getObjectByName("Head");
-      const rim = new THREE.SpotLight(0xbcd4ff, ORACLE.rimIntensity, 0, Math.PI / 5, 0.6, 1.2);
-      rim.position.set(0.0, 1.85, -0.9);               // behind & above the head
-      if (headBone) { rim.target = headBone; }
-      else { rim.target.position.set(0, 1.6, 0); scene.add(rim.target); }
-      scene.add(rim);
-
-      // Head-and-shoulders portrait framing (telephoto; tuned for the MPFB oracle base).
-      camera.fov = 10;
-      camera.position.set(0, 1.60, 2.95);
-      camera.updateProjectionMatrix();
-      if (head.controls) { head.controls.target.set(0, 1.55, 0); head.controls.update(); }
-
-      // CRT grade shader (mono+tint, scanlines, vignette, grain).
-      const CRT = {
-        uniforms: {
-          tDiffuse: { value: null }, time: { value: 0 }, res: { value: new THREE.Vector2(1, 1) },
-          tint: { value: new THREE.Color(ORACLE.tintR, ORACLE.tintG, ORACLE.tintB) },
-          mono: { value: ORACLE.mono }, scanI: { value: ORACLE.scanIntensity }, scanN: { value: ORACLE.scanCount },
-          vig: { value: ORACLE.vignette }, grain: { value: ORACLE.grain },
-        },
-        vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-        fragmentShader: `
-          varying vec2 vUv; uniform sampler2D tDiffuse; uniform float time; uniform vec2 res;
-          uniform vec3 tint; uniform float mono, scanI, scanN, vig, grain;
-          float hash(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453); }
-          void main(){
-            vec3 c = texture2D(tDiffuse, vUv).rgb;
-            float l = dot(c, vec3(0.299,0.587,0.114));
-            vec3 graded = l * tint;                 // monochrome blue phosphor
-            c = mix(c, graded, mono);
-            float scan = mix(1.0, 0.5+0.5*sin(vUv.y*scanN), scanI);  // scanlines
-            c *= scan;
-            vec2 d = vUv-0.5; float v = 1.0 - dot(d,d)*vig; c *= clamp(v,0.0,1.0); // vignette
-            c += (hash(vUv*res + time)-0.5)*grain;  // grain
-            gl_FragColor = vec4(c, 1.0);
-          }`
-      };
-
-      // Composer: RenderPass → UnrealBloomPass → OutputPass → CRT grade.
-      const composer = new EffectComposer(renderer);
-      composer.addPass(new RenderPass(scene, camera));
-      const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), ORACLE.bloom, ORACLE.bloomRadius, ORACLE.bloomThresh);
-      composer.addPass(bloom);
-      composer.addPass(new OutputPass());
-      const crtPass = new ShaderPass(CRT);
-      composer.addPass(crtPass);
-
-      function sizeAll() {
-        const w = avatarEl.clientWidth, h = avatarEl.clientHeight;
-        composer.setSize(w, h);
-        // Half-res bloom: ~4x cheaper fragment cost (the dominant post pass on the Pi 5).
-        // The halo is soft, so the lower-res bloom is visually indistinguishable.
-        bloom.setSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
-        crtPass.uniforms.res.value.set(w, h);
-      }
-      sizeAll();
-      window.addEventListener("resize", sizeAll);
-
-      // Drive the composer from TalkingHead's own render loop.
-      head.render = function () {
-        if (!this.isRunning || this.isAvatarOnly) return;
-        const u = crtPass.uniforms;
-        u.time.value = performance.now() / 1000;
-        u.tint.value.setRGB(ORACLE.tintR, ORACLE.tintG, ORACLE.tintB);
-        u.mono.value = ORACLE.mono; u.scanI.value = ORACLE.scanIntensity; u.scanN.value = ORACLE.scanCount;
-        u.vig.value = ORACLE.vignette; u.grain.value = ORACLE.grain;
-        bloom.strength = ORACLE.bloom; bloom.radius = ORACLE.bloomRadius; bloom.threshold = ORACLE.bloomThresh;
-        rim.intensity = ORACLE.rimIntensity;
-        composer.render();
-      };
-    }
 
     const avatarUrl = window.TALKINGHEAD_AVATAR_URL || "./avatar.glb";
 
@@ -294,17 +260,11 @@
     try {
       await head.showAvatar(
         {
-          url: avatarUrl,
-          body: "F",
-          avatarMood: "neutral",
-          ttsLang: "en-GB",
-          ttsVoice: "en-GB-Standard-A",
-          lipsyncLang: "en",
-          // Calm, gaze-locked oracle: hold eye contact, minimal idle/speaking head drift.
-          avatarIdleEyeContact: 0.85,
-          avatarIdleHeadMove: 0.2,
-          avatarSpeakingEyeContact: 0.9,
-          avatarSpeakingHeadMove: 0.3,
+          url: avatarUrl, body: "F", avatarMood: "neutral",
+          ttsLang: "en-GB", ttsVoice: "en-GB-Standard-A", lipsyncLang: "en",
+          // Calm, gaze-locked hieratic idle (matches the preview).
+          avatarIdleEyeContact: 0.98, avatarIdleHeadMove: 0.015,
+          avatarSpeakingEyeContact: 0.98, avatarSpeakingHeadMove: 0.06,
         },
         (ev) => {
           if (ev.lengthComputable) {
@@ -315,34 +275,768 @@
       );
       hideStatus();
 
-      // Functional wiring first: speech is the production integration contract and must
-      // not depend on the cosmetic CRT grade initializing successfully.
+      // Speech is the production contract; wire it before the cosmetic render layer.
       window.avatarSpeak = (text) => {
         const t = String(text ?? "").trim();
         if (!t) return;
-        try {
-          head.speakText(t);
-        } catch (err) {
+        try { head.speakText(t); }
+        catch (err) {
           console.error("[avatar] speak failed:", err);
-          if (!isProduction) {
-            showStatus(`Speak failed: ${err}`, true);
-          }
+          if (!isProduction) showStatus(`Speak failed: ${err}`, true);
         }
       };
-      if (!isProduction) {
-        speakBtn.disabled = false;
-        window.__head = head;
-      }
+      if (!isProduction) { speakBtn.disabled = false; window.__head = head; }
 
-      // Apply the CRT oracle grade in both production and dev — dev mode just adds the
-      // Speak controls on top, so you preview the real shipped look. To inspect the raw
-      // avatar, use oracle-preview.html or set ORACLE.mono = 0; ORACLE.bloom = 0.
-      // Isolated in its own try/catch: a render-layer failure degrades to the raw avatar
-      // with working speech rather than taking down avatarSpeak / the whole load.
+      // The full leveled-preview look. Isolated try/catch: a render-layer failure
+      // degrades to the raw avatar with working speech rather than a black screen.
       try {
-        setupOracleRenderLayer();
+
+      // ===== ported render layer =====
+    const scene = head.scene, camera = head.camera, renderer = head.renderer;
+    renderer.toneMapping = THREE.NoToneMapping;
+    scene.background = new THREE.Color(ICON.groundR, ICON.groundG, ICON.groundB);
+    camera.fov = 22; camera.position.set(0,1.0,6.10); camera.updateProjectionMatrix();
+    if (head.controls){ head.controls.target.set(0,1.0,0); head.controls.update(); }
+
+    // Materials (unchanged icon grade)
+    scene.traverse((o)=>{
+      if (!o.isMesh) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((m)=>{
+        if (!m) return;
+        const n = (m.name||"") + "|" + (o.name||"");
+        if (m.name === "OracleSkin" || (/skin|base/i.test(n) && o.name === "Human")) {
+          m.roughness=0.95; m.metalness=0.0;
+          if (m.color) m.color.setRGB(0.88,0.84,0.80);   // pale porcelain flesh (ref-matched)
+          // Catholic tattoos baked into OracleSkin: gold lines in Base Color + gold gild in emissiveMap (no dark outline).
+          if (m.emissive){ m.emissive.setRGB(1,1,1); m.emissiveIntensity = (window.__tatEmis||1.8); } m.needsUpdate=true;
+        } else if (m.name === "IconGold") {
+          m.roughness=0.85; m.metalness=0.10;
+          if (m.color) m.color.setRGB(0.74,0.58,0.16);
+          if (m.emissive){ m.emissive.setRGB(0.541,0.416,0.118); m.emissiveIntensity=0.42; } m.needsUpdate=true;
+        } else if (m.name === "IconCross") {
+          m.roughness=0.8; m.metalness=0.08;
+          if (m.color) m.color.setRGB(0.80,0.66,0.30);
+          if (m.emissive){ m.emissive.setRGB(0.42,0.34,0.16); m.emissiveIntensity=0.28; } m.needsUpdate=true;
+        } else if (m.name === "IconDot") {
+          m.roughness=0.9; m.metalness=0.0;
+          if (m.color) m.color.setRGB(0.165,0.122,0.086);
+          if (m.emissive) m.emissiveIntensity=0.0; m.needsUpdate=true;
+        }
+      });
+    });
+
+    // --- Lighting: even + frontal + warm (ref-matched). Soften the key and lift the fill so neither side of the
+    // body falls into shadow — the reference figure is bathed in a soft, near-shadowless warm glow. Live-tunable. ---
+    const LIGHT = window.LIGHT = { amb:0.46, key:0.24, keyX:0.05, keyY:1.70, keyZ:2.30 };
+    function applyLights(){
+      scene.traverse((o)=>{
+        if (o.isAmbientLight){ o.intensity = LIGHT.amb; if(o.color) o.color.setHex(0xfff1dc); }
+        else if (o.isDirectionalLight){ o.intensity = LIGHT.key; if(o.color) o.color.setHex(0xffe9c8);
+          o.position.set(LIGHT.keyX, LIGHT.keyY, LIGHT.keyZ); }
+      });
+    }
+    applyLights();
+
+    const ICONGRADE = {
+      uniforms: {
+        tDiffuse:{value:null}, res:{value:new THREE.Vector2(1,1)},
+        crackStrength:{value:ICON.crackStrength}, crackScale:{value:ICON.crackScale},
+        toothAmount:{value:ICON.toothAmount}, terreVerte:{value:ICON.terreVerte},
+        duoAmount:{value:ICON.duoAmount}, desat:{value:ICON.desat},
+        vignette:{value:ICON.vignette}, exposure:{value:ICON.exposure},
+        lvOn:{value:1}, beat:{value:0},
+        ledgerAmt:{value:LV.ledgerAmt}, ledgerRows:{value:LV.ledgerRows}, ledgerCols:{value:LV.ledgerCols},
+        rayAmt:{value:LV.rayAmt}, rayN:{value:LV.rayN}, rayFall:{value:LV.rayFall}, crossAmt:{value:LV.crossAmt},
+        headC:{value:new THREE.Vector2(LV.headCx, LV.headCy)},
+        heartC:{value:new THREE.Vector2(LV.heartCx, LV.heartCy)},
+        heartScale:{value:LV.heartScale}, heartYoff:{value:LV.heartYoff},
+        heartAmt:{value:LV.heartAmt}, thornAmt:{value:LV.thornAmt}, crossTop:{value:LV.crossTop},
+        christoAmt:{value:LV.christoAmt}, christoScale:{value:LV.christoScale}, christoC:{value:new THREE.Vector2(LV.christoCx, LV.christoCy)},
+        sealAmt:{value:LV.sealAmt}, sealScale:{value:LV.sealScale}, sealPress:{value:0.0}, sealC:{value:new THREE.Vector2(LV.sealC[0],LV.sealC[1])},
+        mandorlaAmt:{value:LV.mandorlaAmt}, mandorlaScale:{value:LV.mandorlaScale}, breathe:{value:0}, mandorlaC:{value:new THREE.Vector2(LV.mandorlaCx, LV.mandorlaCy)},
+        keysAmt:{value:LV.keysAmt}, keysScale:{value:LV.keysScale}, keysReveal:{value:LV.keysReveal},
+        time:{value:0}, fleckAmt:{value:LV.fleckAmt}, fleckDensity:{value:LV.fleckDensity}, shred:{value:0},
+        tallyAmt:{value:LV.tallyAmt}, letterAmt:{value:LV.letterAmt}, letterRadius:{value:LV.letterRadius},
+        eyeAmt:{value:LV.eyeAmt}, eyeN:{value:LV.eyeN}, eyeRadius:{value:LV.eyeRadius}, eyeScale:{value:LV.eyeScale}, blink:{value:0}, blinkIndex:{value:0},
+        atmoOn:{value:ATMO.on}, glowC:{value:new THREE.Vector2(ATMO.glowCx,ATMO.glowCy)},
+        haloAmt:{value:ATMO.haloAmt}, haloTight:{value:ATMO.haloTight},
+        floorAmt:{value:ATMO.floorAmt}, floorTop:{value:ATMO.floorTop}, floorWidth:{value:ATMO.floorWidth},
+        warmCol:{value:new THREE.Color(ATMO.warmR,ATMO.warmG,ATMO.warmB)}, bgGate:{value:new THREE.Vector2(ATMO.bgLo,ATMO.bgHi)},
+        craqGlobal:{value:ICON.craqGlobal},
+      },
+      vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader:`
+        precision highp float;
+        varying vec2 vUv;
+        uniform sampler2D tDiffuse; uniform vec2 res;
+        uniform float crackStrength, crackScale, toothAmount, terreVerte, duoAmount, desat, vignette, exposure;
+        uniform float lvOn, beat, ledgerAmt, ledgerRows, ledgerCols, rayAmt, rayN, rayFall, crossAmt;
+        uniform float heartScale, heartYoff, heartAmt, thornAmt, crossTop;
+        uniform vec2 headC, heartC;
+        uniform float christoAmt, christoScale; uniform vec2 christoC;
+        uniform float sealAmt, sealScale, sealPress; uniform vec2 sealC;
+        uniform float mandorlaAmt, mandorlaScale, breathe; uniform vec2 mandorlaC;
+        uniform float keysAmt, keysScale, keysReveal;
+        uniform float time, fleckAmt, fleckDensity, shred;
+        uniform float tallyAmt, letterAmt, letterRadius;
+        uniform float eyeAmt, eyeN, eyeRadius, eyeScale, blink, blinkIndex;
+        uniform float atmoOn, haloAmt, haloTight, floorAmt, floorTop, floorWidth;
+        uniform vec2 glowC, bgGate; uniform vec3 warmCol;
+        uniform float craqGlobal;
+        float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+        float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p);
+          float a=hash(i), b=hash(i+vec2(1.0,0.0)), c=hash(i+vec2(0.0,1.0)), d=hash(i+vec2(1.0,1.0));
+          vec2 u=f*f*(3.0-2.0*f); return mix(mix(a,b,u.x), mix(c,d,u.x), u.y); }
+        float fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<3;i++){ s+=a*vnoise(p); p*=2.0; a*=0.5; } return s; }
+        vec2 worley(vec2 p){ vec2 ip=floor(p), fp=fract(p); float f1=9.0,f2=9.0;
+          for(int y=-1;y<=1;y++){ for(int x=-1;x<=1;x++){ vec2 g=vec2(float(x),float(y));
+            vec2 o=vec2(hash(ip+g), hash(ip+g+vec2(31.0,17.0))); vec2 r=g+o-fp; float d=dot(r,r);
+            if(d<f1){ f2=f1; f1=d; } else if(d<f2){ f2=d; } }}
+          return vec2(sqrt(f1), sqrt(f2)); }
+        float dot2(vec2 v){ return dot(v,v); }
+        // ---- emblem helpers (Chi-Rho, seal ring, keys, nimbus glyphs, vesica) ----
+        float christoStroke(vec2 p, vec2 a, vec2 b, float w){
+          vec2 pa = p-a, ba = b-a;
+          float h = clamp(dot(pa,ba)/dot(ba,ba), 0.0, 1.0);
+          return smoothstep(w, w*0.45, length(pa - ba*h));
+        }
+        float christoMask(vec2 q){
+          float sw = 0.16;
+          float strokes = 0.0;
+          strokes = max(strokes, christoStroke(q, vec2(-0.7,-0.85), vec2( 0.7, 0.85), sw));
+          strokes = max(strokes, christoStroke(q, vec2( 0.7,-0.85), vec2(-0.7, 0.85), sw));
+          strokes = max(strokes, christoStroke(q, vec2( 0.0,-0.95), vec2( 0.0, 0.95), sw));
+          vec2 lc = vec2(0.18, 0.55); float lr = 0.30;
+          float ring = smoothstep(0.13, 0.05, abs(length(q-lc)-lr));
+          ring *= step(q.x, lc.x+lr);
+          strokes = max(strokes, ring);
+          vec2 g = fract(q*4.5) - 0.5;
+          float punch = smoothstep(0.34, 0.20, length(g));
+          return strokes * punch;
+        }
+        float sdRing(vec2 p, float R, float w){ return abs(length(p) - R) - w; }
+        float sdSegment(vec2 p, vec2 a, vec2 b){ vec2 pa=p-a, ba=b-a; float h=clamp(dot(pa,ba)/dot(ba,ba),0.0,1.0); return length(pa-ba*h); }
+        float sdCircle(vec2 p, float r){ return length(p)-r; }
+        float sdSeg(vec2 p, vec2 a, vec2 b){ vec2 pa=p-a, ba=b-a; float h=clamp(dot(pa,ba)/dot2(ba),0.0,1.0); return length(pa-ba*h); }
+        float glyphMask(vec2 q, int id, float w){
+          float d = 1e3;
+          if(id==0){ d = abs(length(q)-0.55) - w; }
+          else if(id==1){
+            float ring = abs(length(q)-0.55) - w;
+            float gap = smoothstep(0.0,0.02, -q.y-0.30) * step(abs(q.x),0.30);
+            ring = mix(ring, 1.0, gap);
+            float footL = sdSeg(q, vec2(-0.42,-0.30), vec2(-0.18,-0.55)) - w;
+            float footR = sdSeg(q, vec2( 0.42,-0.30), vec2( 0.18,-0.55)) - w;
+            d = min(ring, min(footL, footR));
+          } else {
+            float vL = sdSeg(q, vec2(-0.40,-0.55), vec2(-0.40,0.55)) - w;
+            float vR = sdSeg(q, vec2( 0.40,-0.55), vec2( 0.40,0.55)) - w;
+            float di = sdSeg(q, vec2(-0.40, 0.55), vec2( 0.40,-0.55)) - w;
+            d = min(vL, min(vR, di));
+          }
+          return smoothstep(0.02, 0.0, d);
+        }
+        float sdVesica(vec2 p, float r){ p=abs(p);
+          float d = r*0.5;
+          float b = sqrt(max(r*r-d*d,0.0));
+          return ((p.y-b)*d > p.x*b) ? length(p-vec2(0.0,b))
+                                     : length(p-vec2(-d,0.0))-r; }
+        float sdEyeVesica(vec2 p, float w, float h){
+          p = abs(p);
+          float d = (h<=0.0) ? 1e4 : (w*w - h*h)/(2.0*h);
+          float r = sqrt(w*w + d*d);
+          return (p.y*d > p.x*(-d) ) ? length(p - vec2(0.0, d)) - r
+                                     : length(p - vec2(-w, 0.0));
+        }
+        float sdHeart(vec2 p){ p.x=abs(p.x);
+          if(p.y+p.x>1.0) return sqrt(dot2(p-vec2(0.25,0.75)))-sqrt(2.0)/4.0;
+          return sqrt(min(dot2(p-vec2(0.0,1.0)), dot2(p-0.5*max(p.x+p.y,0.0))))*sign(p.x-p.y); }
+        void main(){
+          vec3 c = texture2D(tDiffuse, vUv).rgb;
+          vec2 ar = vec2(res.x/res.y, 1.0);
+          vec2 puv = vUv*ar;
+          float lo=0.03, hi=0.94; c = lo + c*(hi-lo); c = mix(vec3(0.5), c, 0.90);
+          float l = dot(c, vec3(0.299,0.587,0.114));
+          c *= vec3(1.06,1.0,0.86); c = mix(vec3(l), c, desat);
+          vec3 shadowCol=vec3(0.27,0.16,0.09), highCol=vec3(1.0,0.93,0.74);
+          vec3 duo = mix(shadowCol, highCol, smoothstep(0.0,1.0,l));
+          c = mix(c, c*duo*1.35, duoAmount); c = mix(c, c*vec3(1.04,0.97,0.80), 0.5);
+          vec3 terre=vec3(0.43,0.42,0.30); c = mix(c, terre, (1.0-l)*terreVerte);
+          float tooth = vnoise(puv*220.0); c *= 1.0 + (tooth-0.5)*toothAmount;
+          vec2 w = worley(puv*crackScale);
+          float crack = 1.0 - smoothstep(0.0, 0.035, w.y - w.x);
+          crack *= 0.55 + 0.9*fbm(puv*120.0);
+          c = mix(c, c*vec3(0.55,0.42,0.30), clamp(crack,0.0,1.0)*crackStrength);
+
+          // ===== LEVELED LAYER (gold-on-gold, representational) =====
+          if (lvOn > 0.5) {
+            float lc = dot(c, vec3(0.299,0.587,0.114));
+            float goldMask = smoothstep(0.42, 0.66, lc);
+            // (1) glory sunburst behind the head, in the gold field
+            vec2 pr = (vUv - headC)*ar;
+            float ang = atan(pr.y, pr.x);
+            float rays = pow(0.5+0.5*sin(ang*rayN), 5.0);
+            float rfall = smoothstep(rayFall, 0.04, length(pr));
+            c += c * rays * rfall * rayAmt * goldMask;
+            // (2) gold field as ruled indulgence form (ledger lines + punch-card columns)
+            float ly = abs(fract(vUv.y*ledgerRows)-0.5);
+            float lrow = smoothstep(0.02,0.0, ly-0.46);
+            float lx = abs(fract(vUv.x*ledgerCols)-0.5);
+            float lcol = smoothstep(0.02,0.0, lx-0.46);
+            c *= 1.0 - ledgerAmt*goldMask*max(lrow, lcol*0.7);
+            // (3) cruciform nimbus bars through the head center
+            float cv = smoothstep(0.010,0.0, abs(vUv.x-headC.x));
+            float ch = smoothstep(0.010,0.0, abs(vUv.y-headC.y));
+            c += c * max(cv,ch) * crossAmt * goldMask;
+            // (4) punch-card Chi-Rho (christogram) — holy NAME as machine-readable holes, no letters
+            {
+              vec2 chi = (vUv - christoC)*ar / christoScale;
+              float holes = christoMask(chi);
+              c = mix(c, c*0.32, holes*christoAmt*goldMask);
+            }
+            // ---- bulla / wax seal (committed/filed authentication stamp) ----
+            if (sealAmt > 0.001) {
+              float sPress = clamp(sealPress, 0.0, 1.0);
+              float sScale = sealScale * (1.0 + 0.06 * sPress);
+              vec2 sc = (puv - sealC * ar) / sScale;
+              float r = length(sc);
+              float disc = smoothstep(1.02, 0.98, r);
+              float rim  = smoothstep(0.86, 0.96, r) * smoothstep(1.00, 0.92, r);
+              float ring1 = 1.0 - smoothstep(0.0, 0.045, abs(r - 0.70));
+              float ring2 = 1.0 - smoothstep(0.0, 0.035, abs(r - 0.52));
+              float grooves = max(ring1, ring2) * disc;
+              vec2 q = abs(sc);
+              float barW = 0.085;
+              float barL = 0.34;
+              float crossV = (1.0 - smoothstep(0.0, 0.03, q.x - barW)) * (1.0 - smoothstep(0.0, 0.03, q.y - barL));
+              float crossH = (1.0 - smoothstep(0.0, 0.03, q.y - barW)) * (1.0 - smoothstep(0.0, 0.03, q.x - barL));
+              float device = max(crossV, crossH) * smoothstep(0.50, 0.46, r);
+              float pressAmt = sealAmt * goldMask;
+              float incised = max(grooves, device * 0.85) * disc;
+              c = mix(c, c * 0.45, incised * pressAmt * (0.85 + 0.45 * sPress));
+              c += c * rim * disc * 0.45 * pressAmt * (1.0 + 1.1 * sPress);
+              c += c * disc * 0.06 * pressAmt;
+            }
+            // --- crossed-keys (Keys of St. Peter, license to absolve) ---
+            if (lvOn>0.5 && keysAmt>0.001){
+              vec2 kc = vec2(0.30,0.16)*ar;
+              vec2 kp = (puv - kc) / max(keysScale,0.001);
+              float kd = 1e3;
+              for(int ki=0; ki<2; ki++){
+                float sgn = (ki==0)? 1.0 : -1.0;
+                float a = sgn*0.785398;
+                float cs=cos(a), sn=sin(a);
+                vec2 q = vec2(cs*kp.x + sn*kp.y, -sn*kp.x + cs*kp.y);
+                float shaft = sdSegment(q, vec2(0.0, 0.42), vec2(0.0,-0.46)) - 0.028;
+                float bow = abs(length(q - vec2(0.0,0.50)) - 0.115) - 0.030;
+                float t1 = sdSegment(q, vec2(0.0,-0.46), vec2(0.13,-0.46)) - 0.024;
+                float t2 = sdSegment(q, vec2(0.0,-0.30), vec2(0.10,-0.30)) - 0.024;
+                float key = min(min(shaft,bow), min(t1,t2));
+                kd = min(kd, key);
+              }
+              float rev = clamp(keysReveal,0.0,1.0);
+              float body = (1.0 - smoothstep(0.0,0.018,kd)) * keysAmt * rev;
+              float edge = (smoothstep(0.0,0.012,kd) - smoothstep(0.012,0.034,kd)) * keysAmt * rev;
+              c = mix(c, c*0.50, body * goldMask);
+              c += c * edge * 0.55 * goldMask;
+            }
+            // (4b) gold-leaf flecks: shredded confession drifting up as gilding
+            float fleck = 0.0;
+            for (int fl = 0; fl < 3; fl++) {
+              float fi = float(fl);
+              float scl = mix(70.0, 150.0, fi*0.5);
+              float spd = mix(0.012, 0.030, fi*0.5);
+              vec2 fuv = puv * scl;
+              fuv.y += time * spd * scl;
+              fuv += fi * 17.31;
+              vec2 cell = floor(fuv);
+              vec2 frc = fract(fuv) - 0.5;
+              float r = hash(cell + fi*3.7);
+              float rb = hash(cell + fi*3.7 + vec2(9.1,4.3));
+              float thr = mix(0.965, 0.86, clamp(fleckDensity + shred*0.6, 0.0, 1.0));
+              float on = step(thr, r);
+              vec2 jit = (vec2(hash(cell+vec2(1.7,8.3)), hash(cell+vec2(5.2,2.9))) - 0.5)*0.6;
+              float spk = smoothstep(0.34, 0.0, length(frc - jit));
+              fleck += on * spk * (rb < 0.5 ? -0.8 : 1.0);
+            }
+            c += c * fleck * fleckAmt * (1.0 + shred*1.6) * goldMask;
+            // ---- nimbus upgrade: tally cells + faint halo letters (uses pr from glory block) ----
+            float barV = smoothstep(0.018,0.0, abs(pr.x));
+            float barH = smoothstep(0.018,0.0, abs(pr.y));
+            float tickSp = 0.045;
+            float halfW  = 0.006;
+            float tvY = abs(fract(pr.y/tickSp)-0.5)*tickSp;
+            float tickOnV = smoothstep(halfW, 0.0, tvY) * step(abs(pr.x), 0.030) * step(0.024, abs(pr.x)) * barV;
+            float txX = abs(fract(pr.x/tickSp)-0.5)*tickSp;
+            float tickOnH = smoothstep(halfW, 0.0, txX) * step(abs(pr.y), 0.030) * step(0.024, abs(pr.y)) * barH;
+            float tally = clamp(tickOnV + tickOnH, 0.0, 1.0);
+            c = mix(c, c*0.45, tally * tallyAmt * goldMask);
+            float gs = 0.085;
+            float stroke = 0.10;
+            vec2 qO = (pr - vec2(-letterRadius, 0.0)) / gs;
+            float gO = glyphMask(qO, 0, stroke);
+            vec2 qW = (pr - vec2(0.0, letterRadius)) / gs;
+            float gW = glyphMask(qW, 1, stroke);
+            vec2 qN = (pr - vec2(letterRadius, 0.0)) / gs;
+            float gN = glyphMask(qN, 2, stroke);
+            float letters = clamp(gO + gW + gN, 0.0, 1.0);
+            c = mix(c, c*0.50, letters * letterAmt * goldMask);
+            c += c * letters * letterAmt * 0.35 * goldMask;
+          }
+          // ===== WARM SANCTUARY ATMOSPHERE: PAINT a clean warm radial gradient onto the ground =====
+          // The base icon-grade lifts shadows toward grey, so an additive glow barely reads and corners can't go
+          // dark. Instead, on background pixels (gated out of the bright figure by luminance) we OVERWRITE with a
+          // radial field: bright warm burst behind the halo -> deep warm-black corners, plus a floor pool of light.
+          if (atmoOn > 0.5) {
+            float lumA = dot(c, vec3(0.299,0.587,0.114));
+            float bgN  = 1.0 - smoothstep(bgGate.x, bgGate.y, lumA);   // 1 on dark ground, 0 on the bright figure
+            vec2 gp = (vUv - glowC); gp.x *= ar.x; gp.y *= 0.78;       // vertical oval: cradles the head + torso
+            float halo = exp(-dot(gp,gp)*haloTight);                   // bright core bursting behind the head
+            float fy = smoothstep(floorTop, 0.0, vUv.y);               // rises toward the bottom edge
+            float fx = smoothstep(floorWidth, 0.0, abs(vUv.x-0.5));    // centred pool
+            float S  = clamp(halo*haloAmt + fy*fx*floorAmt + 0.06, 0.0, 1.0);
+            vec3 cornerCol = vec3(0.045,0.032,0.020);                  // deep warm near-black at the edges
+            vec3 bgCol = mix(cornerCol, warmCol, S*S);                 // S*S keeps the falloff snappy/luminous
+            c = mix(c, bgCol, bgN);
+          }
+          vec2 p = vUv-0.5;
+          float r = length(p) * (1.0 + (fbm(puv*3.0)-0.5)*0.10);
+          float v = smoothstep(0.92, 0.30, r);
+          vec3 edge = mix(vec3(0.40,0.30,0.20), vec3(1.0), v);
+          c *= mix(vec3(1.0), edge, clamp(vignette,0.0,1.4));
+
+          // (Sacred Heart is now a real 3D mesh — built at the end of this script, not in-shader)
+
+          // ===== MANDORLA / VESICA-PISCIS reading-window (scanner aperture) =====
+          {
+            vec2 mp = (vUv - mandorlaC)*ar;
+            float mscale = mandorlaScale * (1.0 + 0.012*breathe);
+            float md = sdVesica(vec2(mp.x, mp.y/1.35)/mscale, 0.62);
+            md *= mscale;
+            float outline = smoothstep(0.012, 0.0, abs(md));
+            float glow    = smoothstep(0.045, 0.0, abs(md)) * 0.35;
+            float lift    = (outline + glow) * mandorlaAmt * (0.72 + 0.28*(0.5+0.5*breathe));
+            c += c * vec3(1.0,0.93,0.74) * lift;
+            float interior = smoothstep(0.0, -0.06, md);
+            c += c * interior * mandorlaAmt * 0.10;
+          }
+          // === ophanim-eye-ring: many-eyed wheel of Ezekiel at the nimbus ===
+          if(lvOn>0.5 && eyeAmt>0.001){
+            float eyeLc = dot(c, vec3(0.299,0.587,0.114));
+            float goldMask = smoothstep(0.42, 0.66, eyeLc);
+            vec2 ep = (vUv - headC) * ar;
+            float eang = atan(ep.y, ep.x);
+            float rad = length(ep);
+            float TAU = 6.2831853;
+            float sectF = (eang/TAU + 0.5) * eyeN;
+            float sIdx  = floor(sectF);
+            float fa    = (fract(sectF) - 0.5) * (TAU/eyeN);
+            vec2 lp = vec2(rad*fa, rad - eyeRadius);
+            float isBlink = step(0.5, 1.0 - abs(sIdx - blinkIndex));
+            float lid = clamp(blink,0.0,1.0) * isBlink;
+            float hOpen = eyeScale * (1.0 - 0.92*lid);
+            float dA = sdEyeVesica(lp, eyeScale*1.7, hOpen + 1e-4);
+            float dI = length(lp / vec2(1.0, max(hOpen/(eyeScale*0.95),0.06))) - eyeScale*0.62;
+            float dP = length(lp) - eyeScale*0.26;
+            float aa = eyeScale*0.18 + 1e-4;
+            float mOut  = smoothstep(aa, -aa, abs(dA) - eyeScale*0.13);
+            float mIris = smoothstep(aa, -aa, dI);
+            float mPup  = smoothstep(aa, -aa, dP);
+            float lidShade = smoothstep(aa,-aa, dA) * lid;
+            vec3 punch  = vec3(0.165,0.122,0.086);
+            vec3 chill  = vec3(0.43,0.42,0.30);
+            c = mix(c, chill, mIris * eyeAmt * 0.85 * goldMask);
+            c = mix(c, punch, mPup  * eyeAmt * goldMask);
+            c = mix(c, c*vec3(0.45,0.36,0.26), mOut * eyeAmt * goldMask);
+            c = mix(c, mix(c, c*0.78, 0.6), lidShade * eyeAmt * goldMask);
+          }
+          // ===== GLOBAL ICON CRAQUELURE: the cracked gold-leaf/fresco texture across the WHOLE frame =====
+          // (body + painted glow + ground) — kept bright: cracks read as faint warm gold-leaf seams, not dark fractures.
+          if (craqGlobal > 0.001) {
+            vec2 wq = worley(puv*crackScale);
+            float craq = 1.0 - smoothstep(0.0, 0.05, wq.y - wq.x);
+            craq *= 0.5 + 0.9*fbm(puv*110.0);
+            c = mix(c, c*vec3(0.80,0.70,0.52), clamp(craq,0.0,1.0)*craqGlobal);
+          }
+          c *= exposure; c = min(c, vec3(0.96));
+          gl_FragColor = vec4(c, 1.0);
+        }`
+    };
+
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    // half-res bloom so the emissive Sacred Heart reads as a furnace; threshold-gated to spare the matte gold field
+    // pale-skin direction: bloom kept very low so the pale flesh + gold lines don't blow out
+    const BLOOM = window.BLOOM = { strength:0.22, radius:0.55, threshold:1.7 };
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(1,1), BLOOM.strength, BLOOM.radius, BLOOM.threshold);
+    composer.addPass(bloomPass);
+    composer.addPass(new OutputPass());
+    const gradePass = new ShaderPass(ICONGRADE);
+    composer.addPass(gradePass);
+
+    // ---- GODRAYS: volumetric light scattering for a holy backdrop (radial blur of the bright halo disc) ----
+    // OFF for the pale-skin direction: the bright porcelain flesh fed the scatter and washed the figure
+    // godrays ON, origin = the Sacred Heart (set in godLoop). gateLo lowered so the heart/chest throws shafts;
+    // the body is dimmed (see LIGHT) so a low gate no longer washes the flesh out.
+    const GOD = window.GOD = { on:1, exposure:0.095, decay:0.95, density:0.52, weight:0.24, gateLo:0.70 };
+    const GODRAYS = {
+      uniforms:{ tDiffuse:{value:null}, lightPos:{value:new THREE.Vector2(0.5,0.46)},
+                 exposure:{value:GOD.exposure}, decay:{value:GOD.decay}, density:{value:GOD.density},
+                 weight:{value:GOD.weight}, gateLo:{value:GOD.gateLo}, gOn:{value:1} },
+      vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader:`
+        varying vec2 vUv; uniform sampler2D tDiffuse; uniform vec2 lightPos;
+        uniform float exposure, decay, density, weight, gateLo, gOn;
+        const int SAMPLES=48;
+        void main(){
+          vec4 base = texture2D(tDiffuse, vUv);
+          if(gOn < 0.5){ gl_FragColor = base; return; }
+          vec2 tc = vUv;
+          vec2 dt = (vUv - lightPos) * (density / float(SAMPLES));
+          float decayf = 1.0; vec3 accum = vec3(0.0);
+          for(int i=0;i<SAMPLES;i++){
+            tc -= dt;
+            vec3 s = texture2D(tDiffuse, tc).rgb;
+            float lum = dot(s, vec3(0.299,0.587,0.114));
+            s *= smoothstep(gateLo, gateLo+0.30, lum);   // only bright pixels (heart core, halo, glowing tattoos) throw shafts
+            accum += s * decayf * weight; decayf *= decay;
+          }
+          gl_FragColor = vec4(base.rgb + accum * exposure, base.a);
+        }`
+    };
+    const godPass = window.__godPass = new ShaderPass(GODRAYS);
+    composer.addPass(godPass);
+    // project the halo disc to screen each frame -> ray origin; push the live GOD knobs
+    (function godLoop(){
+      const u = godPass.uniforms, o = scene.getObjectByName("SacredHeart") || scene.getObjectByName("Aura_Disc");
+      if(o){ const v = new THREE.Vector3(); o.getWorldPosition(v); v.project(camera);
+             u.lightPos.value.set(v.x*0.5+0.5, v.y*0.5+0.5); }
+      u.exposure.value=GOD.exposure; u.decay.value=GOD.decay; u.density.value=GOD.density;
+      u.weight.value=GOD.weight; u.gateLo.value=GOD.gateLo; u.gOn.value=GOD.on;
+      requestAnimationFrame(godLoop);
+    })();
+    function sizeAll(){ const wd=avatarEl.clientWidth, ht=avatarEl.clientHeight;
+      composer.setSize(wd,ht); gradePass.uniforms.res.value.set(wd,ht);
+      bloomPass.setSize(Math.max(1,wd>>1), Math.max(1,ht>>1)); }
+    sizeAll(); window.addEventListener("resize", sizeAll);
+
+    head.render = function(){
+      if (!this.isRunning || this.isAvatarOnly) return;
+      const u = gradePass.uniforms, t = performance.now()*0.001;
+      u.crackStrength.value=ICON.crackStrength; u.crackScale.value=ICON.crackScale;
+      u.toothAmount.value=ICON.toothAmount; u.terreVerte.value=ICON.terreVerte;
+      u.duoAmount.value=ICON.duoAmount; u.desat.value=ICON.desat;
+      u.vignette.value=ICON.vignette; u.exposure.value=ICON.exposure; u.craqGlobal.value=ICON.craqGlobal;
+      if (scene.background && scene.background.setRGB) scene.background.setRGB(ICON.groundR,ICON.groundG,ICON.groundB);
+      u.lvOn.value=LV.on;
+      u.ledgerAmt.value=LV.ledgerAmt; u.ledgerRows.value=LV.ledgerRows; u.ledgerCols.value=LV.ledgerCols;
+      u.rayAmt.value=LV.rayAmt; u.rayN.value=LV.rayN; u.rayFall.value=LV.rayFall; u.crossAmt.value=LV.crossAmt;
+      u.headC.value.set(LV.headCx, LV.headCy);
+      u.heartC.value.set(LV.heartCx, LV.heartCy);
+      u.heartScale.value=LV.heartScale; u.heartYoff.value=LV.heartYoff;
+      u.heartAmt.value=LV.heartAmt; u.thornAmt.value=LV.thornAmt; u.crossTop.value=LV.crossTop;
+      u.christoAmt.value=LV.christoAmt; u.christoScale.value=LV.christoScale; u.christoC.value.set(LV.christoCx, LV.christoCy);
+      u.sealAmt.value=LV.sealAmt; u.sealScale.value=LV.sealScale; u.sealPress.value=LV.sealPress; u.sealC.value.set(LV.sealC[0],LV.sealC[1]);
+      u.mandorlaAmt.value=LV.mandorlaAmt; u.mandorlaScale.value=LV.mandorlaScale; u.mandorlaC.value.set(LV.mandorlaCx, LV.mandorlaCy); u.breathe.value=Math.sin(t*0.35);
+      u.keysAmt.value=LV.keysAmt; u.keysScale.value=LV.keysScale; u.keysReveal.value=LV.keysReveal;
+      u.time.value=t; u.fleckAmt.value=LV.fleckAmt; u.fleckDensity.value=LV.fleckDensity; u.shred.value=LV.shred;
+      u.tallyAmt.value=LV.tallyAmt; u.letterAmt.value=LV.letterAmt; u.letterRadius.value=LV.letterRadius;
+      __updateEyeBlink(performance.now());
+      u.eyeAmt.value=LV.eyeAmt; u.eyeN.value=LV.eyeN; u.eyeRadius.value=LV.eyeRadius; u.eyeScale.value=LV.eyeScale; u.blink.value=__eyeBlink; u.blinkIndex.value=__eyeBlinkIndex;
+      u.atmoOn.value=ATMO.on; u.glowC.value.set(ATMO.glowCx,ATMO.glowCy);
+      u.haloAmt.value=ATMO.haloAmt; u.haloTight.value=ATMO.haloTight;
+      u.floorAmt.value=ATMO.floorAmt; u.floorTop.value=ATMO.floorTop; u.floorWidth.value=ATMO.floorWidth;
+      u.warmCol.value.setRGB(ATMO.warmR,ATMO.warmG,ATMO.warmB); u.bgGate.value.set(ATMO.bgLo,ATMO.bgHi);
+      // lub-dub: two close systolic spikes then a rest
+      const ph = fract(t * LV.bpm/60.0);
+      const s1 = Math.pow(Math.max(0.0, Math.sin(ph*Math.PI*2.0)), 8.0);
+      const s2 = 0.6*Math.pow(Math.max(0.0, Math.sin((ph-0.16)*Math.PI*2.0)), 8.0);
+      u.beat.value = Math.min(1.0, (s1 + (ph<0.34?s2:0.0))) * LV.beatDepth;
+      // pin a stable head+chest frame each render (TalkingHead keeps recentring on the head bone)
+      if (window.__cam){ const C=window.__cam; camera.position.set(C.px,C.py,C.pz); camera.lookAt(C.tx,C.ty,C.tz); }
+      // ---- Hieratic idle: slow breath + micro-sway, applied as the last word before the draw (rig-space deltas).
+      // The engine wrote absolute pose quaternions for this frame already; we post-multiply tiny offsets that
+      // reset cleanly next frame (no accumulation). Breath touches only the spine/neck/head — orthogonal to the
+      // arm-driven gestures, so a blessing still reads. The renderer's matrixWorld pass propagates this to the
+      // skin and to the Spine2-socketed Sacred Heart in the same frame.
+      if (IDLE.on && window.__idleBones){
+        const B = window.__idleBones;
+        const br    = Math.sin(t * (IDLE.breathBpm/60) * TAU);        // breath phase -1..1
+        const sway  = Math.sin(t * TAU / IDLE.swayPeriod);            // slow lateral
+        const sway2 = Math.sin(t * TAU / (IDLE.swayPeriod*1.6) + 1.1);// decorrelated drift
+        if (B.Spine1) B.Spine1.quaternion.multiply(__idleQ.setFromAxisAngle(__axX, -IDLE.breathSpine1*br)); // chest opens on inhale
+        if (B.Spine2) B.Spine2.quaternion.multiply(__idleQ.setFromAxisAngle(__axX, -IDLE.breathSpine2*br));
+        if (B.Neck)   B.Neck.quaternion.multiply(  __idleQ.setFromAxisAngle(__axX,  IDLE.breathNeck*br));   // counter-nod holds the gaze level
+        if (B.Head)   B.Head.quaternion.multiply(  __idleQ.setFromAxisAngle(__axX,  IDLE.breathHead*br));
+        if (B.Spine)  B.Spine.quaternion.multiply( __idleQ.setFromAxisAngle(__axZ,  IDLE.swayLean*sway));   // barely-there living sway
+        if (B.Hips)   B.Hips.quaternion.multiply(  __idleQ.setFromAxisAngle(__axY,  IDLE.swayTurn*sway2));
+        if (B.Head)   B.Head.quaternion.multiply(  __idleQ.setFromAxisAngle(__axY,  IDLE.swayHead*sway2));
+      }
+      composer.render();
+    };
+    head.gestureTemplates["bless"] = {
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:0.95,y:-0.35,z:-0.95},
+      "RightForeArm.rotation":{x:0.0,y:0.3,z:-1.95}, "RightHand.rotation":{x:-0.3,y:-0.6,z:-0.3},
+      "RightHandIndex1.rotation":{x:-0.2,y:0,z:0}, "RightHandIndex2.rotation":{x:0.05,y:0,z:0}, "RightHandIndex3.rotation":{x:0,y:0,z:0},
+      "RightHandMiddle1.rotation":{x:-0.2,y:0,z:0}, "RightHandMiddle2.rotation":{x:0.05,y:0,z:0}, "RightHandMiddle3.rotation":{x:0,y:0,z:0},
+      "RightHandRing1.rotation":{x:1.5,y:0,z:0}, "RightHandRing2.rotation":{x:1.4,y:0,z:0}, "RightHandRing3.rotation":{x:0.3,y:0,z:0},
+      "RightHandPinky1.rotation":{x:1.6,y:0,z:0}, "RightHandPinky2.rotation":{x:1.3,y:0,z:0}, "RightHandPinky3.rotation":{x:0.3,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.6,y:-0.2,z:-0.6}, "RightHandThumb2.rotation":{x:0.2,y:0.04,z:0.6}, "RightHandThumb3.rotation":{x:0.2,y:0,z:0.3},
+    };
+    // Latin benediction: thumb+index+middle extended, ring+pinky folded (3 Persons / 2 natures)
+    head.gestureTemplates["blessLatin"] = {
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:0.95,y:-0.35,z:-0.95},
+      "RightForeArm.rotation":{x:0.0,y:0.3,z:-1.95}, "RightHand.rotation":{x:-0.3,y:-0.6,z:-0.3},
+      "RightHandIndex1.rotation":{x:-0.2,y:0,z:0}, "RightHandMiddle1.rotation":{x:-0.2,y:0.06,z:0},
+      "RightHandRing1.rotation":{x:1.5,y:0,z:0}, "RightHandRing2.rotation":{x:1.4,y:0,z:0},
+      "RightHandPinky1.rotation":{x:1.6,y:0,z:0}, "RightHandPinky2.rotation":{x:1.3,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.1,y:-0.3,z:-0.5}, "RightHandThumb2.rotation":{x:0.0,y:0,z:0.2},
+    };
+    // present the heart: open hand toward center-chest
+    head.gestureTemplates["presentHeart"] = {
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.05,y:-0.30,z:-0.85},
+      "RightForeArm.rotation":{x:0.0,y:0.25,z:-1.55}, "RightHand.rotation":{x:-0.5,y:-0.2,z:-0.1},
+      "RightHandIndex1.rotation":{x:0.1,y:0,z:0}, "RightHandMiddle1.rotation":{x:0.1,y:0,z:0},
+      "RightHandRing1.rotation":{x:0.12,y:0,z:0}, "RightHandPinky1.rotation":{x:0.14,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.2,y:-0.3,z:-0.4},
+    };
+    // absolution: hand pushed toward the viewer, fingers joined
+    head.gestureTemplates["absolve"] = {
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.15,y:-0.25,z:-0.7},
+      "RightForeArm.rotation":{x:0.0,y:0.2,z:-1.2}, "RightHand.rotation":{x:-0.2,y:-0.3,z:0.0},
+      "RightHandIndex1.rotation":{x:-0.05,y:0,z:0}, "RightHandMiddle1.rotation":{x:-0.05,y:0,z:0},
+      "RightHandRing1.rotation":{x:-0.05,y:0,z:0}, "RightHandPinky1.rotation":{x:-0.05,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.3,y:-0.2,z:-0.3},
+    };
+
+    // ===================== HIERATIC IDLE: lock a frontal "oracle" stance (kills casual pose-cycling) =========
+    // Build the resting pose from the engine's own 'straight' template (arms at the sides, symmetric legs),
+    // then square the axial chain to camera and add a slight reverent downward gaze (toward the altar/visitor
+    // below the screen). Replace the neutral mood's side/hip/wide alternatives with a single 'oracle' hold and
+    // rebuild the anim queue, so the figure stops shifting its weight like a bored human.
+    (function setupHieraticIdle(){
+      const base = head.poseTemplates['straight'];
+      const props = {};
+      for (const k in base.props) props[k] = { ...base.props[k] };
+      Object.assign(props['Hips.rotation'],   {x:0.030, y:0.0, z:0.0});
+      Object.assign(props['Spine.rotation'],  {x:-0.130,y:0.0, z:0.0});
+      Object.assign(props['Spine1.rotation'], {x:-0.020,y:0.0, z:0.0});
+      Object.assign(props['Spine2.rotation'], {x:0.060, y:0.0, z:0.0});
+      Object.assign(props['Neck.rotation'],   {x:0.060, y:0.0, z:0.0});
+      Object.assign(props['Head.rotation'],   {x:0.100, y:0.0, z:0.0});
+      head.poseTemplates['oracle'] = { standing:true, props };
+
+      const poseAnim = head.animMoods['neutral'].anims.find(a => a.name === 'pose');
+      if (poseAnim){ delete poseAnim.idle; delete poseAnim.speaking; poseAnim.alt = [ { delay:[60000,120000], vs:{ pose:['oracle'] } } ]; }
+      head.setMood('neutral');                                   // rebuild the pose anim from the edited mood
+      head.poseName = 'oracle';
+      head.setPoseFromTemplate( head.poseTemplates['oracle'] );  // snap into it now
+
+      // cache the axial bones so the per-frame breath/sway in head.render does no scene traversal
+      window.__idleBones = {
+        Hips:   head.scene.getObjectByName('Hips'),   Spine:  head.scene.getObjectByName('Spine'),
+        Spine1: head.scene.getObjectByName('Spine1'), Spine2: head.scene.getObjectByName('Spine2'),
+        Neck:   head.scene.getObjectByName('Neck'),   Head:   head.scene.getObjectByName('Head'),
+      };
+    })();
+
+    // Optional: drop in a real downloaded Mixamo idle FBX (e.g. "Breathing Idle" / "Praying", exported
+    // "without skin") and loop it on the rig instead of the procedural idle above. Asset not bundled.
+    //   window.playMixamoIdle('docs/anim/breathing-idle.fbx');
+    window.playMixamoIdle = (url) => head.playAnimation(url, null, 1e7, 0, 0.01);
+
+    let blessTimer;
+    function scheduleBless(){
+      const ms = (LV.gestureBeat + (Math.random()-0.5)*2*LV.gestureJit)*1000;
+      blessTimer = setTimeout(()=>{ head.playGesture("bless", 5, false, 900); scheduleBless(); }, ms);
+    }
+    scheduleBless();
+    // ---- ophanim eye-ring: blink driver (module-scope; read each frame by head.render) ----
+    let __eyeBlink = 0, __eyeBlinkIndex = 0, __eyeBlinkT0 = 0, __eyeBlinkDur = 280, __eyeNextBlink = 0;
+    function __scheduleEyeBlink(now){
+      let n = Math.max(1, Math.round(LV.eyeN));
+      __eyeBlinkIndex = (__eyeBlinkIndex + 1 + Math.floor(Math.random()*(n-1))) % n;
+      __eyeBlinkT0 = now;
+      __eyeNextBlink = now + __eyeBlinkDur + (2500 + Math.random()*1500);
+    }
+    function __updateEyeBlink(now){
+      if(__eyeNextBlink === 0) __eyeNextBlink = now + 1500;
+      if(now >= __eyeNextBlink && (now - __eyeBlinkT0) > __eyeBlinkDur){ __scheduleEyeBlink(now); }
+      let p = (now - __eyeBlinkT0) / __eyeBlinkDur;
+      __eyeBlink = (p < 0 || p > 1) ? 0 : Math.sin(Math.min(p,1)*Math.PI);
+    }
+
+    // ---- bulla-seal: stamp animation (verdict being filed) ----
+    window.pressSeal = function(){
+      if (window.__sealAnimating) return;
+      window.__sealAnimating = true;
+      const dur = 600, t0 = performance.now();
+      function step(now){
+        const k = Math.min(1, (now - t0) / dur);
+        let v;
+        if (k < 0.5){ const a = k / 0.5; v = a*a*(3.0-2.0*a); }
+        else        { const a = (1.0-k) / 0.5; v = a*a*(3.0-2.0*a); }
+        LV.sealPress = v;
+        if (k < 1){ requestAnimationFrame(step); }
+        else { LV.sealPress = 0; window.__sealAnimating = false; }
+      }
+      requestAnimationFrame(step);
+    };
+
+    // ---- gold-leaf-flecks: shred-echo control ----
+    window.shred = function(){
+      const t0 = performance.now(), dur = 900;
+      (function tick(){
+        const k = Math.min(1, (performance.now()-t0)/dur);
+        LV.shred = Math.sin(k*Math.PI);
+        if (k < 1) requestAnimationFrame(tick); else LV.shred = 0;
+      })();
+    };
+
+    // ---- crossed-keys: reveal hook ----
+    window.revealKeys = function(v){ LV.keysReveal = Math.max(0, Math.min(1, +v)); };
+
+    // ---- Gestures: two-hand + sign-of-the-cross sequence ----
+    function camFov(target, ms){
+      const c = head.camera, from = c.fov, t0 = performance.now();
+      function step(){
+        const k = Math.min(1, (performance.now()-t0)/ms);
+        const e = k<0.5 ? 2*k*k : 1-Math.pow(-2*k+2,2)/2;
+        c.fov = from + (target-from)*e; c.updateProjectionMatrix();
+        if (k<1) requestAnimationFrame(step);
+      }
+      step();
+    }
+    function playWide(name, dur, fov){
+      camFov(fov, 900);
+      head.playGesture(name, dur, false, 900);
+      setTimeout(()=> camFov(22, 900), (dur-0.9)*1000);
+    }
+    head.gestureTemplates["speak"] = {
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.10,y:-0.30,z:-0.80},
+      "RightForeArm.rotation":{x:0.0,y:0.25,z:-1.00}, "RightHand.rotation":{x:-0.25,y:-0.35,z:-0.10},
+      "RightHandIndex1.rotation":{x:-0.10,y:0,z:0}, "RightHandIndex2.rotation":{x:0.10,y:0,z:0},
+      "RightHandMiddle1.rotation":{x:-0.05,y:0,z:0}, "RightHandMiddle2.rotation":{x:0.12,y:0,z:0},
+      "RightHandRing1.rotation":{x:0.15,y:0,z:0}, "RightHandRing2.rotation":{x:0.20,y:0,z:0},
+      "RightHandPinky1.rotation":{x:0.20,y:0,z:0}, "RightHandPinky2.rotation":{x:0.25,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.3,y:-0.25,z:-0.4},
+    };
+    head.gestureTemplates["orans"] = {
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.00,y:-0.55,z:-1.05},
+      "RightForeArm.rotation":{x:0.0,y:0.35,z:-1.45}, "RightHand.rotation":{x:-0.55,y:-0.25,z:-0.15},
+      "RightHandIndex1.rotation":{x:0.05,y:0,z:0}, "RightHandMiddle1.rotation":{x:0.05,y:0,z:0},
+      "RightHandRing1.rotation":{x:0.08,y:0,z:0}, "RightHandPinky1.rotation":{x:0.10,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.2,y:-0.3,z:-0.4},
+      "LeftShoulder.rotation":{x:1.758,y:-0.099,z:-1.604}, "LeftArm.rotation":{x:1.00,y:0.55,z:1.05},
+      "LeftForeArm.rotation":{x:0.0,y:-0.35,z:1.45}, "LeftHand.rotation":{x:-0.55,y:0.25,z:0.15},
+      "LeftHandIndex1.rotation":{x:0.05,y:0,z:0}, "LeftHandMiddle1.rotation":{x:0.05,y:0,z:0},
+      "LeftHandRing1.rotation":{x:0.08,y:0,z:0}, "LeftHandPinky1.rotation":{x:0.10,y:0,z:0},
+      "LeftHandThumb1.rotation":{x:0.2,y:0.3,z:0.4},
+    };
+    head.gestureTemplates["weighA"] = {
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.05,y:-0.35,z:-0.90},
+      "RightForeArm.rotation":{x:0.0,y:0.30,z:-1.30}, "RightHand.rotation":{x:-0.55,y:-0.20,z:-0.10},
+      "RightHandIndex1.rotation":{x:0.06,y:0,z:0}, "RightHandMiddle1.rotation":{x:0.06,y:0,z:0},
+      "RightHandRing1.rotation":{x:0.08,y:0,z:0}, "RightHandPinky1.rotation":{x:0.10,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.2,y:-0.3,z:-0.4},
+      "LeftShoulder.rotation":{x:1.758,y:-0.099,z:-1.604}, "LeftArm.rotation":{x:1.20,y:0.35,z:0.90},
+      "LeftForeArm.rotation":{x:0.0,y:-0.30,z:1.05}, "LeftHand.rotation":{x:-0.55,y:0.20,z:0.10},
+      "LeftHandIndex1.rotation":{x:0.06,y:0,z:0}, "LeftHandMiddle1.rotation":{x:0.06,y:0,z:0},
+      "LeftHandRing1.rotation":{x:0.08,y:0,z:0}, "LeftHandPinky1.rotation":{x:0.10,y:0,z:0},
+      "LeftHandThumb1.rotation":{x:0.2,y:0.3,z:0.4},
+    };
+    head.gestureTemplates["weighB"] = {
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.20,y:-0.35,z:-0.90},
+      "RightForeArm.rotation":{x:0.0,y:0.30,z:-1.05}, "RightHand.rotation":{x:-0.55,y:-0.20,z:-0.10},
+      "RightHandIndex1.rotation":{x:0.06,y:0,z:0}, "RightHandMiddle1.rotation":{x:0.06,y:0,z:0},
+      "RightHandRing1.rotation":{x:0.08,y:0,z:0}, "RightHandPinky1.rotation":{x:0.10,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.2,y:-0.3,z:-0.4},
+      "LeftShoulder.rotation":{x:1.758,y:-0.099,z:-1.604}, "LeftArm.rotation":{x:1.05,y:0.35,z:0.90},
+      "LeftForeArm.rotation":{x:0.0,y:-0.30,z:1.30}, "LeftHand.rotation":{x:-0.55,y:0.20,z:0.10},
+      "LeftHandIndex1.rotation":{x:0.06,y:0,z:0}, "LeftHandMiddle1.rotation":{x:0.06,y:0,z:0},
+      "LeftHandRing1.rotation":{x:0.08,y:0,z:0}, "LeftHandPinky1.rotation":{x:0.10,y:0,z:0},
+      "LeftHandThumb1.rotation":{x:0.2,y:0.3,z:0.4},
+    };
+    head.gestureTemplates["epiclesis"] = {
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.35,y:-0.20,z:-0.55},
+      "RightForeArm.rotation":{x:0.0,y:0.15,z:-0.75}, "RightHand.rotation":{x:0.45,y:-0.20,z:-0.05},
+      "RightHandIndex1.rotation":{x:0.05,y:0,z:0}, "RightHandMiddle1.rotation":{x:0.05,y:0,z:0},
+      "RightHandRing1.rotation":{x:0.06,y:0,z:0}, "RightHandPinky1.rotation":{x:0.08,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.2,y:-0.2,z:-0.3},
+      "LeftShoulder.rotation":{x:1.758,y:-0.099,z:-1.604}, "LeftArm.rotation":{x:1.35,y:0.20,z:0.55},
+      "LeftForeArm.rotation":{x:0.0,y:-0.15,z:0.75}, "LeftHand.rotation":{x:0.45,y:0.20,z:0.05},
+      "LeftHandIndex1.rotation":{x:0.05,y:0,z:0}, "LeftHandMiddle1.rotation":{x:0.05,y:0,z:0},
+      "LeftHandRing1.rotation":{x:0.06,y:0,z:0}, "LeftHandPinky1.rotation":{x:0.08,y:0,z:0},
+      "LeftHandThumb1.rotation":{x:0.2,y:0.2,z:0.3},
+    };
+    const _signFingersOpen = {
+      "RightHandIndex1.rotation":{x:-0.05,y:0,z:0}, "RightHandMiddle1.rotation":{x:-0.05,y:0.04,z:0},
+      "RightHandRing1.rotation":{x:-0.05,y:0,z:0}, "RightHandPinky1.rotation":{x:-0.05,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.1,y:-0.25,z:-0.4},
+    };
+    head.gestureTemplates["signFore"] = Object.assign({
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:0.85,y:-0.35,z:-1.00},
+      "RightForeArm.rotation":{x:0.0,y:0.30,z:-2.05}, "RightHand.rotation":{x:-0.30,y:-0.55,z:-0.20},
+    }, _signFingersOpen);
+    head.gestureTemplates["signChest"] = Object.assign({
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.20,y:-0.25,z:-0.70},
+      "RightForeArm.rotation":{x:0.0,y:0.20,z:-1.30}, "RightHand.rotation":{x:-0.20,y:-0.30,z:-0.05},
+    }, _signFingersOpen);
+    head.gestureTemplates["signLeftSh"] = Object.assign({
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.05,y:0.10,z:-0.35},
+      "RightForeArm.rotation":{x:0.0,y:0.10,z:-1.55}, "RightHand.rotation":{x:-0.20,y:-0.20,z:0.0},
+    }, _signFingersOpen);
+    head.gestureTemplates["signRightSh"] = Object.assign({
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.05,y:-0.55,z:-1.05},
+      "RightForeArm.rotation":{x:0.0,y:0.35,z:-1.20}, "RightHand.rotation":{x:-0.20,y:-0.45,z:-0.15},
+    }, _signFingersOpen);
+    function playSignOfCross(){
+      head.playGesture("signFore", 1.5, false, 900);
+      setTimeout(()=> head.playGesture("signChest",   1.5, false, 700), 1200);
+      setTimeout(()=> head.playGesture("signLeftSh",  1.5, false, 700), 2400);
+      setTimeout(()=> head.playGesture("signRightSh", 1.5, false, 700), 3600);
+    }
+    /* ===================== SACRED HEART — baked into the avatar GLB (rides the Spine2 joint) ===================== */
+    (function(){
+      // The heart is now a node inside the avatar GLB, parented to the Spine2 bone and seated in a chest
+      // socket — so it follows every pose/gesture/breath through the rig (no per-frame repositioning needed).
+      // This block only (a) pins the framing and (b) drives the furnace glow / heartbeat off the painted texture.
+      window.__cam = { px:0, py:1.0, pz:6.10, tx:0, ty:1.0, tz:0 };   // full-body framing: fits the whole figure + halo (bbox y -0.03..2.04, centred ~1.0) with margin
+      if (head.controls) head.controls.enabled = false;
+      const EMIS = window.__heartEmis = { base:1.0, beat:1.0, flick:0.12 };
+      const mats = window.__heartMats = [];   // baked-heart materials we drive for the heartbeat glow
+
+      function wireHeartGlow(){
+        const heart = scene.getObjectByName("SacredHeart");
+        if(!heart) return false;
+        window.__heart = heart;
+        heart.traverse(o=>{ if(o.isMesh && o.material){
+          const arr = Array.isArray(o.material) ? o.material : [o.material];
+          arr.forEach(m=>{ m.emissive = new THREE.Color(1,1,1); m.emissiveMap = m.map || null;  // glow follows the painted gold/flame
+                           m.emissiveIntensity = EMIS.base; m.needsUpdate = true; mats.push(m); });
+        }});
+        return true;
+      }
+      // the avatar mesh tree may not be attached the instant showAvatar resolves — retry briefly
+      let tries = 0; (function waitForHeart(){ if(wireHeartGlow() || tries++ > 180) return; requestAnimationFrame(waitForHeart); })();
+
+      function beatLoop(){
+        const t=performance.now()*0.001, ph=(t*(LV.bpm/60.0))%1.0;
+        const s1=Math.pow(Math.max(0,Math.sin(ph*Math.PI*2)),8.0);
+        const s2=0.6*Math.pow(Math.max(0,Math.sin((ph-0.16)*Math.PI*2)),8.0);
+        const beat=Math.min(1.0,(s1+(ph<0.34?s2:0)))*LV.beatDepth;
+        const ei=EMIS.base*(0.85+EMIS.beat*beat)*(1.0+EMIS.flick*Math.sin(t*8.0));
+        for(let i=0;i<mats.length;i++) mats[i].emissiveIntensity=ei;
+        bloomPass.strength=BLOOM.strength; bloomPass.radius=BLOOM.radius; bloomPass.threshold=BLOOM.threshold;
+        requestAnimationFrame(beatLoop);
+      }
+      beatLoop();
+    })();
+    /* =================== end Sacred Heart =================== */
+
       } catch (gradeErr) {
-        console.error("[avatar] CRT grade failed to initialize; rendering raw avatar:", gradeErr);
+        console.error("[avatar] render layer failed; rendering raw avatar:", gradeErr);
       }
     } catch (err) {
       console.error(err);
@@ -355,13 +1049,9 @@
         if (!text) return;
         window.avatarSpeak(text);
       }
-
       speakBtn.addEventListener("click", speakNow);
       textEl.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter") {
-          ev.preventDefault();
-          speakNow();
-        }
+        if (ev.key === "Enter") { ev.preventDefault(); speakNow(); }
       });
     }
 
