@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Oracle voice audition</title>
+<style>
+  html, body { width:100%; height:100%; margin:0; background:#0c0a08; color:#e8dcc0;
+    font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; overflow:hidden; }
+  #avatar { position:fixed; inset:0; }
+  #panel { position:fixed; top:0; right:0; width:360px; max-height:100vh; overflow:auto;
+    background:rgba(12,10,8,.85); border-left:1px solid #2a2218; padding:14px 16px; box-sizing:border-box; backdrop-filter:blur(3px); }
+  h1 { font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:#d8c08a; margin:0 0 10px; }
+  h2 { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#8a7c58; margin:16px 0 2px; border-top:1px solid #241d14; padding-top:10px; }
+  label { display:flex; justify-content:space-between; align-items:baseline; font-size:11px; color:#b6a880; margin:9px 0 3px; letter-spacing:.02em; }
+  label output { color:#e8dcc0; font-variant-numeric:tabular-nums; font-size:12px; }
+  select { width:100%; box-sizing:border-box; background:#17120c; color:#e8dcc0; border:1px solid #3a3020; border-radius:5px; padding:7px 8px; font-size:13px; margin-bottom:2px; }
+  textarea { width:100%; box-sizing:border-box; background:#17120c; color:#e8dcc0; border:1px solid #3a3020; border-radius:5px; padding:7px 8px; font-size:13px; height:96px; resize:vertical; line-height:1.5; }
+  input[type=range] { width:100%; accent-color:#c8a84e; margin:0; }
+  .btns { display:flex; gap:8px; margin-top:12px; }
+  button { flex:1; font:13px ui-monospace, Menlo, monospace; color:#1a120a; background:#d8c08a; border:0; padding:10px; border-radius:6px; cursor:pointer; }
+  button.sec { background:#3a3020; color:#d8c08a; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  #dump { width:100%; box-sizing:border-box; background:#0a0805; color:#9ec89e; border:1px solid #241d14; border-radius:5px;
+    padding:8px; font:11px ui-monospace, Menlo, monospace; white-space:pre-wrap; word-break:break-word; margin-top:6px; }
+  #status { position:fixed; left:12px; bottom:12px; font-size:12px; color:#9a8c68; background:rgba(0,0,0,.5); padding:6px 10px; border-radius:5px; max-width:55vw; }
+  .hint { font-size:10px; color:#8a7c58; font-weight:normal; }
+</style>
+</head>
+<body>
+  <div id="avatar"></div>
+  <div id="panel">
+    <h1>Oracle voice audition</h1>
+
+    <h2>Voice (server-side · free on Pi)</h2>
+    <label for="voice">Voice <span class="hint">en-US female · all honor pitch</span></label>
+    <select id="voice">
+      <option value="en-US-Standard-C" selected>en-US-Standard-C — measured, institutional</option>
+      <option value="en-US-Standard-E">en-US-Standard-E — warmer, rounder</option>
+      <option value="en-US-Standard-F">en-US-Standard-F — brighter, clerical</option>
+      <option value="en-US-Standard-G">en-US-Standard-G — mature, administrative</option>
+      <option value="en-US-Standard-H">en-US-Standard-H — lighter, crisp</option>
+    </select>
+    <label for="pitch">Pitch (semitones) <output id="pitch_o">-6.5</output></label>
+    <input id="pitch" type="range" min="-12" max="8" step="0.5" value="-6.5">
+    <label for="rate">Speaking rate <output id="rate_o">0.82</output></label>
+    <input id="rate" type="range" min="0.4" max="1.6" step="0.01" value="0.82">
+
+    <h2>Effects</h2>
+    <label for="preset">Preset <span class="hint">loads a starting point, then tune below</span></label>
+    <select id="preset">
+      <option value="absolution" selected>absolution — locked-in production look</option>
+      <option value="dry">dry — clean baseline (hear the raw voice)</option>
+      <option value="chamber">chamber — warmth + short room</option>
+      <option value="transmission">transmission — intercom + grit</option>
+      <option value="oracle">oracle — fullest sacred-bureaucratic</option>
+    </select>
+    <div id="fx"></div>
+
+    <div class="btns">
+      <button id="speak" disabled>Speak</button>
+      <button id="stop" class="sec">Stop</button>
+    </div>
+
+    <h2>Dialed-in settings <span class="hint">paste this back to bake it in</span></h2>
+    <div id="dump"></div>
+    <div class="btns"><button id="copy" class="sec">Copy settings</button></div>
+
+    <label for="text" style="margin-top:14px">Sample absolution</label>
+    <textarea id="text">You have come before the Office of Algorithmic Absolution. Your confession has been received and tabulated. For the harm of taking more than you needed, the system prescribes an offset of forty units, payable in deeds. For benefiting from labor you did not fairly compensate, a further charge is assessed and recorded against your account. For the advantage you inherited and did not earn, the ledger is adjusted accordingly. These debts are noted, weighed, and filed. Your absolution has been processed. Go now, and let your account reflect the balance restored.</textarea>
+  </div>
+  <div id="status">Loading…</div>
+
+  <script type="importmap">
+  { "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js/+esm",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+    "talkinghead": "https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.7/modules/talkinghead.mjs"
+  } }
+  </script>
+
+  <script type="module">
+    import { TalkingHead } from "talkinghead";
+    import { installVoiceFX, applyVoiceParams, VOICE_PRESETS } from "./voice-fx.js";
+
+    const $ = (id) => document.getElementById(id);
+    const setStatus = (m) => { $("status").textContent = m; };
+    const avatarUrl = window.TALKINGHEAD_AVATAR_URL || "docs/base/oracle-icon-heart.glb?v=17";
+
+    // Live FX parameter state — starts on the locked-in "absolution" production look.
+    const P = { ...VOICE_PRESETS.absolution };
+
+    // FX sliders, generated from this spec (voice/pitch/rate handled separately above).
+    // Ranges are deliberately EXTREME — pull back to taste; production bakes whatever you settle on.
+    const FX_CTRLS = [
+      { k: "hp",     label: "High-pass (Hz)",          min: 20,  max: 500,  step: 5 },
+      { k: "warm",   label: "Warmth (dB @200)",        min: -8,  max: 18,   step: 0.5 },
+      { k: "dip",    label: "Presence (dB @3k)",       min: -18, max: 12,   step: 0.5 },
+      { k: "sat",    label: "Saturation (grit)",       min: 0,   max: 1,    step: 0.02 },
+      { k: "wet",    label: "Transmission send",       min: 0,   max: 1,    step: 0.05 },
+      { k: "bpFreq", label: "Transmission band (Hz)",  min: 200, max: 5000, step: 50 },
+      { k: "bpQ",    label: "Transmission Q (sharpness)", min: 0.3, max: 14, step: 0.1 },
+      { k: "revAmt", label: "Reverb amount",           min: 0,   max: 1.5,  step: 0.05 },
+      { k: "revLen", label: "Reverb length (s)",       min: 0.05, max: 3.0, step: 0.05 },
+    ];
+
+    const head = new TalkingHead($("avatar"), {
+      ttsEndpoint: "/tts",            // same-origin proxy injects the key server-side
+      lipsyncModules: ["en"],
+      cameraView: "upper",
+      lightAmbientIntensity: 2.0, lightDirectIntensity: 12,
+    });
+    window.__head = head;
+
+    // Build the FX slider rows.
+    for (const c of FX_CTRLS) {
+      const lab = document.createElement("label");
+      const out = document.createElement("output"); out.id = c.k + "_o";
+      lab.textContent = c.label; lab.appendChild(out);
+      const inp = document.createElement("input");
+      inp.type = "range"; inp.id = c.k; inp.min = c.min; inp.max = c.max; inp.step = c.step; inp.value = P[c.k];
+      inp.oninput = () => { P[c.k] = parseFloat(inp.value); out.value = fmt(P[c.k]); applyVoiceParams(head, P); refreshDump(); };
+      $("fx").append(lab, inp);
+    }
+    const fmt = (v) => (Number.isInteger(v) ? v : v.toFixed(2));
+    function syncSliders() { for (const c of FX_CTRLS) { $(c.k).value = P[c.k]; $(c.k + "_o").value = fmt(P[c.k]); } }
+
+    function settings() {
+      return { ttsLang: "en-US", ttsVoice: $("voice").value, ttsPitch: parseFloat($("pitch").value),
+        ttsRate: parseFloat($("rate").value), preset: $("preset").value, fx: { ...P } };
+    }
+    function refreshDump() { $("dump").textContent = JSON.stringify(settings(), null, 2); }
+
+    (async () => {
+      try {
+        await head.showAvatar({
+          url: avatarUrl, body: "F", avatarMood: "neutral",
+          ttsLang: "en-US", ttsVoice: "en-US-Standard-C", ttsPitch: -6.5, ttsRate: 0.82, lipsyncLang: "en",
+        }, (ev) => { if (ev.lengthComputable) setStatus(`Loading ${Math.round(ev.loaded / ev.total * 100)}%`); });
+        installVoiceFX(head); applyVoiceParams(head, P);
+        syncSliders(); refreshDump();
+        setStatus("Ready. Tune, then Speak.");
+        $("speak").disabled = false;
+      } catch (err) { setStatus("Load failed: " + err); console.error(err); }
+    })();
+
+    // Controls
+    $("pitch").oninput = (e) => { $("pitch_o").value = e.target.value; refreshDump(); };
+    $("rate").oninput  = (e) => { $("rate_o").value  = e.target.value; refreshDump(); };
+    $("voice").onchange = refreshDump;
+    $("preset").onchange = (e) => { Object.assign(P, VOICE_PRESETS[e.target.value]); applyVoiceParams(head, P); syncSliders(); refreshDump(); };
+
+    $("speak").onclick = async () => {
+      const t = $("text").value.trim(); if (!t) return;
+      try {
+        if (head.audioCtx?.state === "suspended") await head.audioCtx.resume();
+        head.avatar.ttsLang = "en-US";
+        head.avatar.ttsVoice = $("voice").value;
+        head.avatar.ttsPitch = parseFloat($("pitch").value);
+        head.avatar.ttsRate  = parseFloat($("rate").value);
+        applyVoiceParams(head, P);
+        setStatus(`Speaking · ${$("voice").value} · pitch ${$("pitch").value} · rate ${$("rate").value}`);
+        head.speakText(t);
+      } catch (err) { setStatus("Speak failed: " + err); console.error(err); }
+    };
+    $("stop").onclick = () => { try { head.stopSpeaking(); } catch (e) {} setStatus("Stopped."); };
+    $("copy").onclick = async () => {
+      const s = JSON.stringify(settings(), null, 2);
+      try { await navigator.clipboard.writeText(s); setStatus("Settings copied to clipboard."); }
+      catch (e) { setStatus("Copy blocked — select the text above and copy manually."); }
+    };
+  </script>
+</body>
+</html>

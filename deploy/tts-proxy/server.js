@@ -47,7 +47,10 @@ const list = (v, d) => (v || d).split(',').map((s) => s.trim()).filter(Boolean);
 // Pin to the cheap Standard tier voices we actually ship. Blocks an attacker forcing
 // expensive Studio/WaveNet/Neural2 voices onto the bill.
 const ALLOWED_VOICES = list(process.env.TTS_ALLOWED_VOICES,
-  'en-GB-Standard-A,en-GB-Standard-B,en-GB-Standard-C,en-GB-Standard-D,en-GB-Standard-F,en-GB-Standard-N,en-GB-Standard-O');
+  // FREE-tier (Standard) en-US female voices only — they honor server-side pitch and stay in
+  // Google's free monthly allotment. Premium tiers (Neural2/WaveNet/Studio/Chirp) are blocked
+  // here so a stray request can't incur premium billing.
+  'en-US-Standard-C,en-US-Standard-E,en-US-Standard-F,en-US-Standard-G,en-US-Standard-H');
 const ALLOWED_LANGS = list(process.env.TTS_ALLOWED_LANGS, 'en-GB,en-US');
 const MAX_INPUT_CHARS = parseInt(process.env.TTS_MAX_INPUT_CHARS || '2000', 10); // spoken chars per request
 const DAILY_CHAR_CAP = parseInt(process.env.TTS_DAILY_CHAR_CAP || '50000', 10);  // billing backstop
