@@ -291,6 +291,37 @@
       };
       if (!isProduction) { speakBtn.disabled = false; window.__head = head; }
 
+      // ALG-15: punch-card category totals -> absolution text -> speech. This is the callable
+      // seam for the sensor/orchestrator (wired in ALG-13). POSTs the totals to the same-origin
+      // /absolution service (the Magisterium key lives only server-side in deploy/tts-proxy/.env),
+      // then speaks the returned text. If the service is unreachable we still speak a client-side
+      // canned line, so even a dead proxy never leaves a visitor with silence.
+      const absolutionEndpoint = window.ABSOLUTION_ENDPOINT || "/absolution";
+      const CLIENT_FALLBACK_ABSOLUTION =
+        "Your confession is received and reconciled. For what you have declared, let your penance " +
+        "be one deliberate repair, and the ledger will hold no grievance against you. Go in peace.";
+      window.requestAbsolution = async (categoryTotals) => {
+        let text = "", source = "fallback";
+        try {
+          const r = await fetch(absolutionEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(categoryTotals || {}),
+          });
+          if (r.ok) {
+            const d = await r.json();
+            if (d && typeof d.text === "string" && d.text.trim()) { text = d.text.trim(); source = d.source || "magisterium"; }
+          } else {
+            console.warn("[absolution] service returned", r.status, "- using client fallback");
+          }
+        } catch (err) {
+          console.warn("[absolution] request failed, using client fallback:", err);
+        }
+        if (!text) text = CLIENT_FALLBACK_ABSOLUTION;
+        window.avatarSpeak(text);
+        return { text, source };
+      };
+
       // ---- Absolution voice effects (ALG-9): shared chain from voice-fx.js, spliced into
       // TalkingHead's audio graph (audio thread, off the 60fps GPU budget). Re-installed idempotently
       // because TalkingHead can rebuild its graph and does not persist reverb. Default preset is

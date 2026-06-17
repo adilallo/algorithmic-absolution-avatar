@@ -21,6 +21,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
+const absolution = require('./absolution'); // ALG-15: punch-card totals -> absolution text (Magisterium)
 
 // --- Paths -----------------------------------------------------------------
 const PROXY_DIR = __dirname;                               // deploy/tts-proxy
@@ -57,12 +58,14 @@ const DAILY_CHAR_CAP = parseInt(process.env.TTS_DAILY_CHAR_CAP || '50000', 10); 
 const MAX_BODY_BYTES = parseInt(process.env.TTS_MAX_BODY_BYTES || '262144', 10); // 256 KB
 const MAX_INFLIGHT = parseInt(process.env.TTS_MAX_INFLIGHT || '2', 10);
 const FETCH_TIMEOUT_MS = parseInt(process.env.TTS_FETCH_TIMEOUT_MS || '15000', 10); // upstream call cap
+const ABS_MAX_INFLIGHT = parseInt(process.env.ABSOLUTION_MAX_INFLIGHT || '2', 10);  // /absolution concurrency cap
 
 // --- Rate limiting: token buckets (in-memory; one process) -----------------
 const globalBucket = makeBucket(10, 10 / 60); // ~10 req/min sustained, burst 10
 const ipBuckets = new Map();                  // per-IP: 1 req/s sustained, burst 5
 const IP_BUCKET_CAP = 5000;                   // prune idle buckets past this (loopback => ~1 entry)
 let inFlight = 0;
+let absInFlight = 0;
 let usage = loadUsage();
 
 // --- Static MIME types -----------------------------------------------------
@@ -90,6 +93,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
     return handleTts(req, res);
   }
+  if (pathname === '/absolution/health') {
+    return sendJson(res, 200, { ok: true, ...absolution.health() }); // never includes the key
+  }
+  if (pathname === '/absolution') {
+    if (req.method === 'OPTIONS') return send(res, 204, 'text/plain', '');
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+    return handleAbsolution(req, res);
+  }
   if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: 'Method not allowed' });
   return serveStatic(req, res, pathname);
 });
@@ -105,7 +116,11 @@ server.on('error', (e) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`[tts-proxy] static + /tts listening on http://${HOST}:${PORT}  (root: ${REPO_ROOT})`);
+  console.log(`[tts-proxy] static + /tts + /absolution listening on http://${HOST}:${PORT}  (root: ${REPO_ROOT})`);
+  if (!process.env.MAGISTERIUM_API_KEY) {
+    console.warn('[absolution] WARNING: MAGISTERIUM_API_KEY is not set — /absolution serves canned fallback text only.');
+    console.warn('[absolution] Set it in deploy/tts-proxy/.env (copy from .env.example) to enable the LLM.');
+  }
   if (HOST !== '127.0.0.1' && HOST !== '::1' && HOST !== 'localhost') {
     console.warn(`[tts-proxy] WARNING: bound to ${HOST} (not loopback). The key-protection and rate-limit`);
     console.warn('[tts-proxy] model assumes 127.0.0.1-only access — add real auth before exposing this.');
@@ -191,6 +206,46 @@ async function handleTts(req, res) {
   } finally {
     clearTimeout(timer);
     inFlight--;
+  }
+}
+
+// --- POST /absolution handler (ALG-15) -------------------------------------
+// Accepts punch-card category totals and returns absolution text for the avatar to speak.
+// getAbsolution() never throws — on a missing key, timeout, or upstream error it returns a
+// canned absolution (source:"fallback") so the ritual never stalls. The Magisterium key is
+// injected server-side inside absolution.js and never reaches this response.
+async function handleAbsolution(req, res) {
+  const ip = req.socket.remoteAddress || 'local';
+
+  let raw;
+  try { raw = await readBody(req, MAX_BODY_BYTES); }
+  catch (e) { return sendJson(res, e.code === 413 ? 413 : 400, { error: e.code === 413 ? 'Payload too large' : 'Failed to read body' }); }
+
+  let totals;
+  try { totals = raw.length ? JSON.parse(raw.toString('utf8')) : {}; }
+  catch { return sendJson(res, 400, { error: 'Body must be JSON (category totals)' }); }
+
+  if (absInFlight >= ABS_MAX_INFLIGHT) return sendJson(res, 429, { error: 'Too many concurrent absolution requests' });
+  // Use only the per-IP bucket here, NOT the shared globalBucket: each absolution is immediately
+  // followed by a /tts call to speak it, and they must not compete for the same global tokens (which
+  // could let the absolution succeed but rate-limit /tts -> a mute avatar). Concurrency + the daily
+  // cap are the real backstops for /absolution.
+  if (!take(ipBucket(ip))) {
+    console.warn(`[absolution] 429 rate-limited ip=${ip}`);
+    return sendJson(res, 429, { error: 'Rate limit exceeded' });
+  }
+
+  absInFlight++;
+  try {
+    const result = await absolution.getAbsolution(totals);
+    // Return only what the client needs to speak; keep diagnostics server-side.
+    sendJson(res, 200, { text: result.text, source: result.source, model: result.model });
+  } catch (e) {
+    // Defensive: getAbsolution shouldn't throw, but never leave the ritual without words.
+    console.error('[absolution] unexpected error:', e.message);
+    sendJson(res, 200, { text: absolution.pickCanned([]), source: 'fallback', model: null });
+  } finally {
+    absInFlight--;
   }
 }
 
