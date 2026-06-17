@@ -29,35 +29,41 @@ TalkingHead builds its request as `fetch(ttsEndpoint + (ttsApikey ? "?key="+ttsA
 ## Access control & abuse limits
 
 - **`127.0.0.1`-bind is the primary control** — nothing off-box can reach the proxy, the same boundary the static server already relied on. (Any secret the browser could hold would itself be extractable, so a browser token would only be a speed bump.)
-- **Rate limiting** — global token bucket (~10 req/min) + per-IP (1 req/s, burst 5) + a concurrency cap.
-- **Daily character cap** (`TTS_DAILY_CHAR_CAP`, persisted to `.usage.json`) — the real billing backstop.
+- **Rate limiting** — global token bucket (burst 60, ~2/s) + per-IP (burst 60, ~5/s) + a concurrency cap (`TTS_MAX_INFLIGHT`, 24). Sized so one long absolution — which TalkingHead splits into many per-sentence `/tts` calls — isn't throttled into silence.
+- **Daily character cap** (`TTS_DAILY_CHAR_CAP`, default 200000, persisted to `.usage.json`, resets UTC midnight) — the real billing backstop. Long ~1800-char reads consume it ~3–4× faster; tune to your Google free tier for production.
 - **Voice / language / length allowlists** — pins synthesis to the cheap Standard voices and bounds per-request cost; blocks forcing expensive Studio/WaveNet voices.
 
 Configure all of these via env vars (see `.env.example`). As defense in depth, also restrict the Google key to the Text-to-Speech API and set a Cloud billing budget alert.
 
 ## Absolution endpoint (ALG-15)
 
-`POST /absolution` accepts punch-card **category totals** and returns the **absolution text** for the avatar to speak. The avatar app calls it same-origin via `window.requestAbsolution(totals)` (in `index.html`), which then passes the text to `window.avatarSpeak()`.
+`POST /absolution` accepts **which punch-card categories were declared** and returns the **spoken text** for the avatar to read. The avatar app calls it same-origin via `window.requestAbsolution(punched)` (in `index.html`), which passes the text to `window.avatarSpeak()`. A dev **harm-picker UI** in `index.html` (hidden in production) drives this end-to-end for testing — checkboxes for the ten categories + a "Request absolution" button. On request, the avatar **reads the declared harms back and speaks a holding line first** (TalkingHead queues speech), filling the ~25 s LLM wait, then speaks the response.
 
-Request body — either a flat map or a list (both accepted):
+Request body — the punch card is **boolean** (a subset of the ten Form 1517-A categories; no counts). The orchestrator (ALG-13) sends **which categories were punched**, in any of these shapes (`normalizeTotals` maps them all to the canonical schedule; any count/flag is read as a boolean, unknown keys ignored):
 
 ```jsonc
-// flat map
-{ "taking_more_than_needed": 3, "underpaid_labor": 1, "unearned_advantage": 2 }
-// or a list
-{ "categories": [ { "label": "Taking more than needed", "count": 3 } ] }
+// canonical ids (recommended)
+{ "punched": ["taking_more_than_needed", "benefiting_from_underpaid_labor"] }
+// 1-based schedule indices
+[1, 5, 9]
+// labels (case/space-insensitive)
+{ "categories": ["Taking more than needed", "Pricing what should not be sold"] }
+// flat map (truthy = punched)
+{ "taking_more_than_needed": true, "consuming_faster_than_things_renew": 1 }
 ```
+
+The ten canonical ids/labels are `CATEGORIES` in [absolution.js](absolution.js). The prompt simply **states the declared harms and speaks back the LLM's response** — no scripted offsets. Full prompt template: [docs/ABSOLUTION_PROMPT.md](../../docs/ABSOLUTION_PROMPT.md).
 
 Response:
 
 ```json
-{ "text": "Your account is received...", "source": "magisterium", "model": "magisterium-1" }
+{ "text": "These declarations are received and recorded...", "source": "magisterium", "model": "magisterium-1" }
 ```
 
-- **`source: "magisterium"`** — generated live by the LLM. **`source: "fallback"`** — a pre-written canned absolution (see below).
-- **Provider/model:** Magisterium AI, `magisterium-1` (OpenAI-compatible chat completions, grounded in Catholic magisterial sources with citations). Chosen because the piece's absolution voice *is* Catholic-magisterial; endpoint/model are env-overridable.
+- **`source: "magisterium"`** — generated live by the LLM. **`source: "fallback"`** — a pre-written canned line (see below).
+- **Provider/model:** Magisterium AI, `magisterium-1` (OpenAI-compatible, grounded in Catholic magisterial sources). Endpoint/model are env-overridable. ⚠️ **Live caveat (ALG-14):** currently **no system prompt** is sent (experiment) — just the declared harms. Magisterium still answers with source-citing Catholic catechesis (~25 s, ~30k tokens), not a short reply; and the word *"absolution"* must stay out of anything sent or it refuses outright. The setup is LLM-agnostic — port to a general (non-RAG) model for a short, fast, cheap reply. See [docs/ABSOLUTION_PROMPT.md](../../docs/ABSOLUTION_PROMPT.md#magisterium--portability).
 - **API-key storage:** `MAGISTERIUM_API_KEY` in `.env` only — server-side, never in the browser.
-- **Latency budget (card → speech):** measured live latency is **~5–20 s** — Magisterium's RAG retrieval is slow. The proxy waits at most `ABSOLUTION_TIMEOUT_MS` (default **30 s**) then falls back to canned. ⚠️ This is the open UX problem: 5–20 s of silence after a card is inserted is past gallery patience. The real fixes are a **holding utterance** while waiting and/or **caching/pre-baking** responses (the punch-card input space is tiny) to take the LLM off the hot path. TTS adds ~1–2 s.
+- **Latency budget (card → speech):** measured live latency is **~25 s** — Magisterium's RAG retrieval is slow. The proxy waits at most `ABSOLUTION_TIMEOUT_MS` (default **30 s**) then falls back to canned. ⚠️ Open UX problem: ~25 s of silence after a card is inserted is past gallery patience. The real fixes are a **holding utterance** while waiting and/or **caching/pre-baking** responses (the input space is tiny) to take the LLM off the hot path. TTS adds ~1–2 s.
 - **Fallback when the API is down:** missing key, timeout, upstream error, empty response, or over the daily cap → a canned liturgical absolution (`source:"fallback"`), so the ritual never visibly stalls. The client (`index.html`) has its own canned line too, covering the case where the proxy itself is unreachable.
 - **Cost backstop:** `ABSOLUTION_DAILY_REQUEST_CAP` (default **300** live calls/day, persisted to `.absolution-usage.json`); over the cap it serves canned text instead of spending quota.
 
@@ -66,7 +72,7 @@ Test it (no key needed — returns canned; with a key — returns live text):
 ```bash
 curl -s -X POST http://127.0.0.1:8765/absolution \
   -H 'Content-Type: application/json' \
-  -d '{"taking_more_than_needed":3,"underpaid_labor":1}' | python3 -m json.tool
+  -d '{"punched":["taking_more_than_needed","benefiting_from_underpaid_labor"]}' | python3 -m json.tool
 curl -s http://127.0.0.1:8765/absolution/health | python3 -m json.tool
 ```
 

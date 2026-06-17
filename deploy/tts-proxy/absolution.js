@@ -33,20 +33,27 @@ function readConfig() {
     // exact path/model can be corrected from .env without a code change if the API differs.
     endpoint: process.env.MAGISTERIUM_API_URL || 'https://www.magisterium.com/api/v1/chat/completions',
     model: process.env.MAGISTERIUM_MODEL || 'magisterium-1',
-    // Latency budget backstop: card inserted -> avatar speaking. Measured live latency is ~5-20s
-    // (Magisterium's RAG retrieval is the cost), so 8s aborted every real call -> always canned.
-    // Raised to 30s so the LLM can actually answer; slower than this still falls back to canned.
-    // NOTE: a 30s silence is its own UX problem — pair with a holding utterance, or pre-bake/cache
-    // responses (the punch-card input space is tiny) to take the LLM off the hot path entirely.
-    timeoutMs: int(process.env.ABSOLUTION_TIMEOUT_MS, 30000),
+    // Latency backstop: card inserted -> avatar speaking. Measured live latency is ~25-40s
+    // (Magisterium emits 30-37k RAG tokens, and latency scales with that output). 30s sat right on
+    // the boundary -> ~half of real calls were aborted as "timeouts" and fell back to canned (NOT
+    // refusals). Raised to 60s so the slow-but-real answers complete. The read-back + holding line
+    // (index.html) fills the start of the wait; pre-bake/cache is the real fix to take the LLM off
+    // the hot path (see docs/ABSOLUTION_PROMPT.md "Determinism").
+    timeoutMs: int(process.env.ABSOLUTION_TIMEOUT_MS, 60000),
     // NOTE: max_tokens does NOT bound cost here — the dominant ~13-20k "system_tokens" are the
     // RAG-retrieved sources, billed as output and uncapped by this. It only trims the visible answer.
     maxTokens: int(process.env.ABSOLUTION_MAX_TOKENS, 320),
-    temperature: num(process.env.ABSOLUTION_TEMPERATURE, 0.8),
-    // Hard cap on SPOKEN length. The model can ignore "be brief" and RAG can append citations;
-    // anything over the /tts gate (TTS_MAX_INPUT_CHARS, default 2000) is rejected -> silence. We
-    // trim to whole sentences under this before returning the text to speak.
-    maxSpokenChars: int(process.env.ABSOLUTION_MAX_SPOKEN_CHARS, 600),
+    // Low temperature: the offsets are baked (see SCHEDULE OF REMITTANCES below), so the model
+    // only welds fixed clauses into prose — it should not drift. 0.4 keeps slight liturgical
+    // variation without inventing content. For a gallery, prefer pre-baking/caching per punch-tuple
+    // (see docs/ABSOLUTION_PROMPT.md "Determinism") over relying on per-call sampling.
+    temperature: num(process.env.ABSOLUTION_TEMPERATURE, 0.4),
+    // Hard cap on SPOKEN length, trimmed to whole sentences. Kept UNDER the /tts gate
+    // (TTS_MAX_INPUT_CHARS, default 2000) — over that, TTS 400s -> silence. 1800 lets the avatar
+    // speak most of a Magisterium answer (raw ~4-5k chars) instead of ~2-4 sentences; note this is
+    // a lot of speech (~2-3 min at the locked rate). To read the FULL essay, also raise
+    // TTS_MAX_INPUT_CHARS above the raw length (and mind the per-call Google TTS char cost).
+    maxSpokenChars: int(process.env.ABSOLUTION_MAX_SPOKEN_CHARS, 1800),
     // Daily live-call cap — a free-tier / billing backstop (persisted, resets at UTC midnight).
     // Counts only SUCCESSFUL live calls (failures fall back to canned and must not burn the cap).
     dailyRequestCap: int(process.env.ABSOLUTION_DAILY_REQUEST_CAP, 300),
@@ -60,83 +67,133 @@ function readConfig() {
 const int = (v, d) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : d; };
 const num = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
 
-// --- Persona + prompt ----------------------------------------------------------------------
-// ⚠️ PLACEHOLDER PROMPT — DO NOT TREAT AS FINAL. Verified live: this "digital saint, pronounce
-// absolution" framing makes Magisterium BREAK CHARACTER and refuse (it reserves absolution to an
-// ordained priest), returning a doctrinal lecture. The real prompt is to be rebuilt from the
-// actual punch-card categories as a separate effort. Until then, the refusal guard (above) keeps
-// the avatar from speaking the refusal. Reframing options that DON'T get refused (verified):
-// counsel on penance/reparation; an Act of Contrition in the penitent's voice; or a deliberate
-// "this office cannot absolve you" bureaucratic deferral. See memory: llm-integration-alg15.
-const SYSTEM_PROMPT =
-  'You are the digital saint of the Office of Algorithmic Absolution, a ritual apparatus that ' +
-  'absolves contemporary harm the way the medieval Church sold indulgences and the way modern ' +
-  'institutions sell carbon offsets and ESG credits — treating the indulgence certificate and ' +
-  'the offset ledger as one continuous document. A penitent has punched a card declaring ' +
-  'categories of harm and their counts. Speak directly to them, in a sacred-but-bureaucratic ' +
-  'register that fuses liturgical absolution with the language of accounting, ledgers, and ' +
-  'remittance. Briefly acknowledge what they have declared, prescribe a proportionate "offset" ' +
-  'or penance for the harm, and pronounce absolution. Be calm, grave, and merciful. This will ' +
-  'be spoken aloud, so write 3 to 5 short sentences of plain prose only: no markdown, no bullet ' +
-  'lists, no headings, no citations, no stage directions.';
+// --- Canonical categories + prompt (ALG-14) ------------------------------------------------
+// The punch card (FORM 1517-A) has ten fixed categories of harm; a visitor punches any SUBSET
+// (booleans — no counts). We do NOT prescribe offsets or script a settlement: we simply STATE the
+// declared harms, send them to the LLM, and speak its response back. CATEGORIES is just the
+// canonical id/label list — the source of truth for the card wording and for the normalizer.
+// The prompt is deliberately CLEARED-OUT and LLM-AGNOSTIC: just format/length + no-personal-data,
+// and it deliberately AVOIDS the word "absolution"/"absolve" — verified live that asking Magisterium
+// to "issue absolution" triggers its "only an ordained priest can absolve" refusal (role-break,
+// ~26s, ~27k tokens). We state the harms and let the model respond freely. To re-tune the wording,
+// edit the labels here (keep docs/ABSOLUTION_PROMPT.md in sync).
+const CATEGORIES = [
+  { id: 'taking_more_than_needed',               label: 'TAKING MORE THAN NEEDED' },
+  { id: 'using_more_than_your_share',            label: 'USING MORE THAN YOUR SHARE' },
+  { id: 'letting_others_bear_the_cost',          label: 'LETTING OTHERS BEAR THE COST' },
+  { id: 'undervaluing_care_given_to_you',        label: 'UNDERVALUING CARE GIVEN TO YOU' },
+  { id: 'benefiting_from_underpaid_labor',       label: 'BENEFITING FROM UNDERPAID LABOR' },
+  { id: 'claiming_what_belongs_to_many',         label: 'CLAIMING WHAT BELONGS TO MANY' },
+  { id: 'wanting_what_was_sold_to_you',          label: 'WANTING WHAT WAS SOLD TO YOU' },
+  { id: 'pricing_what_should_not_be_sold',       label: 'PRICING WHAT SHOULD NOT BE SOLD' },
+  { id: 'consuming_faster_than_things_renew',    label: 'CONSUMING FASTER THAN THINGS RENEW' },
+  { id: 'inheriting_advantage_you_did_not_earn', label: 'INHERITING ADVANTAGE YOU DID NOT EARN' },
+];
 
-// Render whatever totals shape we are handed into a stable, human-readable confession line.
+// EXPERIMENT (andy, 2026-06-16): no system prompt — send ONLY the declared harms (the user message)
+// and see what the model does unprompted. While this is empty, getAbsolution() omits the system
+// message entirely. Set it to a non-empty string to reinstate guidance (the prior cleared prompt is
+// in git history). NOTE: with no system prompt the model is unconstrained — cleanForSpeech (strip +
+// 600-char cap) and the refusal guard are the only backstops on what reaches the avatar.
+const SYSTEM_PROMPT = '';
+
+// Build the user message: simply state the declared harms (the punched category labels, in
+// schedule order). The model responds freely; we speak its response. `categories` is the output of
+// normalizeTotals(): canonical {id,label}, ordered.
 function buildUserPrompt(categories) {
   if (!categories.length) {
-    return 'The penitent inserted a card but declared no specific category of harm. Pronounce a ' +
-      'general absolution.';
+    return 'A card was submitted declaring no category of harm.';
   }
-  const lines = categories.map((c) => `- ${c.label}: ${c.count}`).join('\n');
-  return 'The penitent has declared the following categories of harm and the number of marks ' +
-    `punched against each:\n${lines}\n\nPronounce their absolution.`;
+  const lines = categories.map((c) => `- ${c.label}`).join('\n');
+  return `A card was submitted declaring these categories of harm:\n${lines}`;
 }
 
 // --- Canned fallback bank (on-theme; used when the API is unavailable/over-cap) ------------
+// Same lean, formal register as the live prompt (an institution issuing a ruling; no-record
+// motif) so a fallback never breaks tone. Generic over which categories were punched — used only
+// when the API is unavailable.
 const CANNED = [
-  'Your account is received. For the harms you have declared, a remittance is recorded against ' +
-    'the common ledger; let your penance be the deliberate undoing of one of them this week. Go ' +
-    'in measured peace — the balance is, for now, forgiven.',
-  'The Office acknowledges your confession. No tariff is too great for the contrite; your offset ' +
-    'is accepted and your debit marked paid. Return lighter, and take only what you need.',
-  'It is entered. Against each weight you have named, a credit is issued in kind — restitution, ' +
-    'restraint, repair. The column is cleared. Depart absolved.',
-  'Your declaration is logged and your indulgence granted. Carry forward one correction for every ' +
-    'excess confessed, and the ledger will keep no grievance against you. Be at peace.',
-  'Received and reconciled. The arithmetic of your guilt is answered by the arithmetic of grace; ' +
-    'what you owed is offset in full. Go, and let your next account read cleaner.',
+  'The Office of Algorithmic Absolution has received your declaration. The harm you have named is ' +
+    'acknowledged and answered. By this ruling you are absolved. No record is kept.',
+  'Your declaration is received and processed. For the harm declared, absolution is issued in ' +
+    'full. The matter is closed. No record is kept.',
+  'The Office acknowledges the harm you have declared. It is answered, and you are absolved. ' +
+    'Nothing further is required, and no record is kept.',
+  'Declaration received. The harm named is absolved without condition. You may go. No record is ' +
+    'kept of this proceeding.',
+  'The Office of Algorithmic Absolution has read your declaration. The harm is acknowledged and ' +
+    'absolved in full. No record is kept.',
 ];
-// Rotate deterministically by total marks so repeated identical cards do not always say the same
-// thing, without needing per-process random state.
+// Rotate deterministically by which categories were punched, so repeated identical cards do not
+// always say the same thing, without needing per-process random state.
 function pickCanned(categories) {
-  const total = categories.reduce((s, c) => s + (c.count || 0), 0);
-  return CANNED[(total + categories.length) % CANNED.length];
+  const sum = categories.reduce((s, c) => s + CATEGORIES.indexOf(c) + 1, 0);
+  return CANNED[(sum + categories.length) % CANNED.length];
 }
 
-// --- Totals normalization (accept either an array of {label,count} or a flat {key:count} map) -
+// --- Selection normalization ---------------------------------------------------------------
+// The punch card is BOOLEAN — a subset of the ten categories, no counts. Map whatever the
+// orchestrator (ALG-13) sends to the canonical CATEGORIES, deduped and in schedule order.
+// Accepted shapes (any count/total/flag is treated as a boolean: truthy/>0 = punched):
+//   ["taking_more_than_needed", "benefiting_from_underpaid_labor"]      // canonical ids
+//   [1, 5, 9]                                                            // 1-based schedule indices
+//   ["TAKING MORE THAN NEEDED", "Benefiting from underpaid labor"]       // labels (case/space-insensitive)
+//   { taking_more_than_needed: true, using_more_than_your_share: 1 }     // flat map
+//   { categories: [ { id|label|name, count?|punched? }, ... ] }          // list of objects
+//   { punched: [...] } | { selections: [...] }                           // common envelopes
+// Unknown keys are ignored; nothing throws. Counts are NOT used to weight the absolution.
+const normKey = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const KEY_TO_INDEX = (() => {
+  const m = new Map();
+  CATEGORIES.forEach((c, i) => { m.set(normKey(c.id), i); m.set(normKey(c.label), i); });
+  return m;
+})();
+function resolveIndex(token) {
+  if (typeof token === 'number') return Number.isInteger(token) && token >= 1 && token <= CATEGORIES.length ? token - 1 : -1;
+  const s = String(token).trim();
+  if (/^\d+$/.test(s)) { const n = parseInt(s, 10); return n >= 1 && n <= CATEGORIES.length ? n - 1 : -1; }
+  const idx = KEY_TO_INDEX.get(normKey(s));
+  return idx == null ? -1 : idx;
+}
+function isPunched(v) {
+  if (v == null) return false;
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v > 0;
+  const s = String(v).trim().toLowerCase();
+  return s !== '' && s !== '0' && s !== 'false' && s !== 'no' && s !== 'off';
+}
+// For a {label, count?} object: a count/flag field gates it; an object with neither = punched.
+function objectPunched(o) {
+  for (const k of ['count', 'total', 'value', 'marks', 'punched', 'selected', 'checked', 'on']) {
+    if (o[k] != null) return isPunched(o[k]);
+  }
+  return true;
+}
 function normalizeTotals(raw) {
-  if (!raw || typeof raw !== 'object') return [];
-  const src = Array.isArray(raw) ? raw : (Array.isArray(raw.categories) ? raw.categories : raw);
-  const out = [];
+  if (raw == null) return [];
+  let src = raw;
+  if (!Array.isArray(raw) && typeof raw === 'object') {
+    src = raw.categories || raw.punched || raw.selections || raw.totals || raw;
+  }
+  const ENVELOPE = new Set(['categories', 'punched', 'selections', 'totals']);
+  const hits = new Set();
   if (Array.isArray(src)) {
-    for (const c of src) {
-      if (!c || typeof c !== 'object') continue;
-      const label = String(c.label || c.name || c.id || '').trim();
-      const count = clampCount(c.count != null ? c.count : c.total != null ? c.total : c.value);
-      if (label && count > 0) out.push({ label, count });
+    for (const item of src) {
+      if (item == null) continue;
+      if (typeof item === 'object') {
+        const key = item.id ?? item.name ?? item.key ?? item.label ?? item.category ?? item.index;
+        if (key != null && objectPunched(item)) { const i = resolveIndex(key); if (i >= 0) hits.add(i); }
+      } else {
+        const i = resolveIndex(item); if (i >= 0) hits.add(i);
+      }
     }
-  } else {
-    for (const [key, value] of Object.entries(src)) {
-      if (key === 'categories') continue;
-      const count = clampCount(value);
-      if (count > 0) out.push({ label: humanize(key), count });
+  } else if (src && typeof src === 'object') {
+    for (const [k, v] of Object.entries(src)) {
+      if (ENVELOPE.has(k)) continue;
+      if (isPunched(v)) { const i = resolveIndex(k); if (i >= 0) hits.add(i); }
     }
   }
-  return out.slice(0, 24); // bound prompt size
-}
-function clampCount(v) { const n = Math.floor(Number(v)); return Number.isFinite(n) && n > 0 ? Math.min(n, 99) : 0; }
-function humanize(key) {
-  return String(key).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
-    .replace(/\b\w/g, (m) => m.toUpperCase());
+  return [...hits].sort((a, b) => a - b).map((i) => CATEGORIES[i]);
 }
 
 // --- Daily usage (live-call cap; persisted across restarts) --------------------------------
@@ -183,10 +240,10 @@ async function getAbsolution(rawTotals) {
       },
       body: JSON.stringify({
         model: cfg.model,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: buildUserPrompt(categories) },
-        ],
+        // No system message while SYSTEM_PROMPT is empty (experiment) — just send the declared harms.
+        messages: SYSTEM_PROMPT
+          ? [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: buildUserPrompt(categories) }]
+          : [{ role: 'user', content: buildUserPrompt(categories) }],
         max_tokens: cfg.maxTokens,
         temperature: cfg.temperature,
         stream: false,
@@ -222,7 +279,7 @@ async function getAbsolution(rawTotals) {
     // Refusal guard: if the model broke character and refused (rather than producing a usable line),
     // speak canned instead of a doctrinal refusal. See ABSOLUTION_REFUSAL_GUARD.
     if (cfg.refusalGuard && looksLikeRefusal(text)) {
-      console.warn(`[absolution] response looks like a refusal/role-break; serving canned ms=${Date.now() - t0}${tok}`);
+      console.warn(`[absolution] response looks like a refusal; serving canned ms=${Date.now() - t0}${tok} head="${text.slice(0, 160).replace(/\s+/g, ' ')}"`);
       return { text: pickCanned(categories), source: 'fallback', model: cfg.model, latencyMs: Date.now() - t0, finishReason: 'refused' };
     }
 
@@ -274,12 +331,17 @@ function cleanForSpeech(s, maxChars = 600) {
   return out;
 }
 
-// Heuristic: did the model break character and refuse rather than produce a usable line?
-// Magisterium does this when asked to "absolve" (it reserves that act to an ordained priest).
+// Heuristic: did the model HARD-refuse, rather than produce a usable line? Kept deliberately
+// NARROW so it does not swallow substantive answers: openings like "I must clarify", "I'm sorry",
+// "as an AI", or "it is not possible" frequently PREFIX a real (clarifying) reply we DO want to
+// speak, so they are NOT treated as refusals. Only an outright "I cannot/will not", an explicit
+// "cannot administer/grant/pronounce absolution", or the "only an ordained priest" line counts.
 function looksLikeRefusal(text) {
-  const head = String(text).trim().slice(0, 200).toLowerCase();
-  return /^(i cannot|i can['’]?t|i am unable|i['’]?m unable|i am sorry|i['’]?m sorry|as an ai|i must (first )?clarify|i should clarify|it is not possible)/.test(head)
-    || /only (a |an )?(validly )?ordained priest/.test(String(text).toLowerCase());
+  const body = String(text).toLowerCase();
+  const head = body.trim().slice(0, 200);
+  return /^(i cannot|i can['’]?t|i am unable|i['’]?m unable|i will not|i won['’]?t)\b/.test(head)
+    || /\b(cannot|can['’]?t|am not able to|unable to) (administer|grant|pronounce|give|offer) (absolution|a sacrament|the sacrament)/.test(body)
+    || /only (a |an )?(validly )?ordained priest/.test(body);
 }
 
 function health() {
@@ -297,4 +359,4 @@ function health() {
   };
 }
 
-module.exports = { getAbsolution, health, normalizeTotals, pickCanned, cleanForSpeech, looksLikeRefusal, CANNED };
+module.exports = { getAbsolution, health, normalizeTotals, buildUserPrompt, pickCanned, cleanForSpeech, looksLikeRefusal, CATEGORIES, SYSTEM_PROMPT, CANNED };

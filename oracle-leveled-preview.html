@@ -108,8 +108,8 @@
     const scene = head.scene, camera = head.camera, renderer = head.renderer;
     renderer.toneMapping = THREE.NoToneMapping;
     scene.background = new THREE.Color(ICON.groundR, ICON.groundG, ICON.groundB);
-    camera.fov = 22; camera.position.set(0,1.0,6.10); camera.updateProjectionMatrix();
-    if (head.controls){ head.controls.target.set(0,1.0,0); head.controls.update(); }
+    camera.fov = 8; camera.position.set(0,1.66,6.10); camera.updateProjectionMatrix();
+    if (head.controls){ head.controls.target.set(0,1.66,0); head.controls.update(); }
 
     // Materials (unchanged icon grade)
     scene.traverse((o)=>{
@@ -669,20 +669,9 @@
     window.revealKeys = function(v){ LV.keysReveal = Math.max(0, Math.min(1, +v)); };
 
     // ---- Gestures: two-hand + sign-of-the-cross sequence ----
-    function camFov(target, ms){
-      const c = head.camera, from = c.fov, t0 = performance.now();
-      function step(){
-        const k = Math.min(1, (performance.now()-t0)/ms);
-        const e = k<0.5 ? 2*k*k : 1-Math.pow(-2*k+2,2)/2;
-        c.fov = from + (target-from)*e; c.updateProjectionMatrix();
-        if (k<1) requestAnimationFrame(step);
-      }
-      step();
-    }
-    function playWide(name, dur, fov){
-      camFov(fov, 900);
+    // The camera stays locked on the heart-up portrait (fov 8, set above) for every gesture — no zoom on play.
+    function playWide(name, dur){
       head.playGesture(name, dur, false, 900);
-      setTimeout(()=> camFov(22, 900), (dur-0.9)*1000);
     }
     head.gestureTemplates["speak"] = {
       "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.10,y:-0.30,z:-0.80},
@@ -772,8 +761,8 @@
       const ctl = document.getElementById("ctl");
       const mk = (id,label,fn)=>{ const b=document.createElement("button"); b.id=id; b.textContent=label; b.onclick=fn; ctl.appendChild(b); return b; };
       mk("speakb",   "speak",     ()=> head.playGesture("speak", 4, false, 700));
-      mk("oransb",   "orans",     ()=> playWide("orans", 6, 25));
-      mk("epib",     "epiclesis", ()=> playWide("epiclesis", 6, 25));
+      mk("oransb",   "orans",     ()=> playWide("orans", 6));
+      mk("epib",     "epiclesis", ()=> playWide("epiclesis", 6));
       mk("crossb",   "sign",      ()=> playSignOfCross());
       mk("sealb2",   "seal",      ()=> window.pressSeal());
       mk("shredb",   "shred",     ()=> window.shred());
@@ -781,20 +770,7 @@
 
     /* ===================== verdict-rite (orchestration) ===================== */
     (function(){
-      const camera = head.camera;
       let isDelivering = false;
-      function tweenFov(toFov, ms){
-        return new Promise(res=>{
-          const fromFov = camera.fov, dur = Math.max(1, ms||600), t0 = performance.now();
-          (function step(now){
-            let k = Math.min(1,(now-t0)/dur);
-            const e = k<0.5 ? 2*k*k : 1-Math.pow(-2*k+2,2)/2;
-            camera.fov = fromFov + (toFov-fromFov)*e;
-            camera.updateProjectionMatrix();
-            if(k<1) requestAnimationFrame(step); else res();
-          })(performance.now());
-        });
-      }
       const sleep = ms => new Promise(r=>setTimeout(r, ms));
       async function runVerdictRite(){
         if(isDelivering) return;
@@ -802,7 +778,7 @@
         const sB = LV.bpm, sD = LV.beatDepth;
         try{
           LV.bpm = 84; LV.beatDepth = 1.0;
-          await tweenFov(25, 900);
+          await sleep(900);
           head.playGesture("orans", 2.6, false, 900);
           await sleep(1100);
           const signs = ["signFore","signChest","signLeftSh","signRightSh"];
@@ -813,7 +789,6 @@
           head.playGesture("absolve", 4, false, 700);
           if(window.pressSeal) window.pressSeal();
           await sleep(3600);
-          await tweenFov(22, 900);
         } finally {
           LV.bpm = sB; LV.beatDepth = sD;
           isDelivering = false;
@@ -827,7 +802,6 @@
       mkBtn("weigh-toggle", function(){
         if(weighTimer){ clearInterval(weighTimer); weighTimer=null; return; }
         weighFlip = false;
-        camFov(25, 900);
         head.playGesture("weighA", 1.2, false, 600);
         weighTimer = setInterval(()=>{ weighFlip=!weighFlip; head.playGesture(weighFlip?"weighB":"weighA", 1.2, false, 600); }, 1200);
       });
@@ -839,7 +813,7 @@
       // The heart is now a node inside the avatar GLB, parented to the Spine2 bone and seated in a chest
       // socket — so it follows every pose/gesture/breath through the rig (no per-frame repositioning needed).
       // This block only (a) pins the framing and (b) drives the furnace glow / heartbeat off the painted texture.
-      window.__cam = { px:0, py:1.0, pz:6.10, tx:0, ty:1.0, tz:0 };   // full-body framing: fits the whole figure + halo (bbox y -0.03..2.04, centred ~1.0) with margin
+      window.__cam = { px:0, py:1.66, pz:6.10, tx:0, ty:1.66, tz:0 };   // heart-up framing: bottom edge at the Sacred Heart (y~1.34), top above the halo (y~2.04), centred ~1.66 — pairs with the fov-8 lens above. Locked: gestures play within this frame, no camera zoom.
       if (head.controls) head.controls.enabled = false;
       const EMIS = window.__heartEmis = { base:1.0, beat:1.0, flick:0.12 };
       const mats = window.__heartMats = [];   // baked-heart materials we drive for the heartbeat glow
