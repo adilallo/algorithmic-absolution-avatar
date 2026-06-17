@@ -105,6 +105,7 @@
     import { ShaderPass }      from "three/addons/postprocessing/ShaderPass.js";
     import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
     import { OutputPass }      from "three/addons/postprocessing/OutputPass.js";
+    import { installVoiceFX, applyVoiceParams, VOICE_PRESETS } from "./voice-fx.js";
 
     const isProduction =
       window.TALKINGHEAD_PRODUCTION === true ||
@@ -259,7 +260,12 @@
       await head.showAvatar(
         {
           url: avatarUrl, body: "F", avatarMood: "neutral",
-          ttsLang: "en-GB", ttsVoice: "en-GB-Standard-A", lipsyncLang: "en",
+          // Absolution voice (ALG-9): FREE-tier en-US female (Standard — stays in Google's free
+          // allotment), pitched DOWN server-side (Google does the semitone shift — no Pi cost) +
+          // a slow, measured rate for a solemn, bureaucratic read. Keep avatarMood "neutral" (its
+          // speech deltas are 0) so these pass through clean; never set animSlowdownRate (that
+          // would double-shift pitch+tempo client-side). Tune via oracle-voice-audition.html.
+          ttsLang: "en-US", ttsVoice: "en-US-Standard-C", ttsPitch: -6.5, ttsRate: 0.82, lipsyncLang: "en",
           // Calm, gaze-locked hieratic idle (matches the preview).
           avatarIdleEyeContact: 0.98, avatarIdleHeadMove: 0.015,
           avatarSpeakingEyeContact: 0.98, avatarSpeakingHeadMove: 0.06,
@@ -277,13 +283,32 @@
       window.avatarSpeak = (text) => {
         const t = String(text ?? "").trim();
         if (!t) return;
-        try { head.speakText(t); }
+        try { ensureVoiceFX(); head.speakText(t); }
         catch (err) {
           console.error("[avatar] speak failed:", err);
           if (!isProduction) showStatus(`Speak failed: ${err}`, true);
         }
       };
       if (!isProduction) { speakBtn.disabled = false; window.__head = head; }
+
+      // ---- Absolution voice effects (ALG-9): shared chain from voice-fx.js, spliced into
+      // TalkingHead's audio graph (audio thread, off the 60fps GPU budget). Re-installed idempotently
+      // because TalkingHead can rebuild its graph and does not persist reverb. Default preset is
+      // "chamber"; switch live in dev with window.ORACLE_VOICE("dry"|"chamber"|"transmission"|"oracle").
+      const voiceParams = { ...(VOICE_PRESETS[window.ORACLE_VOICE_PRESET] || VOICE_PRESETS.absolution) };
+      function ensureVoiceFX() {
+        const fx = installVoiceFX(head);
+        if (fx && !fx.__applied) { applyVoiceParams(head, voiceParams); fx.__applied = true; }
+      }
+      window.ORACLE_VOICE = (name) => {
+        if (!VOICE_PRESETS[name]) { console.warn("[avatar] presets:", Object.keys(VOICE_PRESETS).join(", ")); return; }
+        window.ORACLE_VOICE_PRESET = name;
+        Object.assign(voiceParams, VOICE_PRESETS[name]);
+        if (installVoiceFX(head)) applyVoiceParams(head, voiceParams);
+      };
+      // Optional fine-tune from the console (e.g. window.ORACLE_VOICE_SET({ revAmt: 0.5 })).
+      window.ORACLE_VOICE_SET = (patch) => { Object.assign(voiceParams, patch); applyVoiceParams(head, voiceParams); };
+      ensureVoiceFX(); // install now so the default preset is live before the first utterance
 
       // The full leveled-preview look. Isolated try/catch: a render-layer failure
       // degrades to the raw avatar with working speech rather than a black screen.
