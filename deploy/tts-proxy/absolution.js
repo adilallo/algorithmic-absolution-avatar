@@ -44,10 +44,10 @@ function readConfig() {
     // RAG-retrieved sources, billed as output and uncapped by this. It only trims the visible answer.
     maxTokens: int(process.env.ABSOLUTION_MAX_TOKENS, 320),
     // Low temperature: the offsets are baked (see SCHEDULE OF REMITTANCES below), so the model
-    // only welds fixed clauses into prose — it should not drift. 0.4 keeps slight liturgical
+    // only welds fixed clauses into prose — it should not drift. 0.6 keeps moderate liturgical
     // variation without inventing content. For a gallery, prefer pre-baking/caching per punch-tuple
     // (see docs/ABSOLUTION_PROMPT.md "Determinism") over relying on per-call sampling.
-    temperature: num(process.env.ABSOLUTION_TEMPERATURE, 0.4),
+    temperature: num(process.env.ABSOLUTION_TEMPERATURE, 0.6),
     // Hard cap on SPOKEN length, trimmed to whole sentences. Kept UNDER the /tts gate
     // (TTS_MAX_INPUT_CHARS, default 2000) — over that, TTS 400s -> silence. 1800 lets the avatar
     // speak most of a Magisterium answer (raw ~4-5k chars) instead of ~2-4 sentences; note this is
@@ -108,8 +108,8 @@ const SYSTEM_PROMPT = '';
 //     ~300–500 chars. cleanForSpeech strips the markdown/footnote markers; the quoted text is spoken.
 //   BREVITY_PLAIN (fallback) — dry, no quotes/imagery; revert to this if the vivid one drifts long/off.
 // Keep the word "absolution"/"absolve" OUT of either (it triggers Magisterium's "only a priest" refusal).
-const BREVITY_PLAIN = 'Respond in no more than two or three sentences. Do not use headings or lists, and do not quote or cite sources.';
-const BREVITY_VIVID = 'Respond in two or three sentences: name in one striking phrase what these harms share, give one concrete image, and anchor it with a single memorable quotation from scripture or the Church. No headings or lists.';
+const BREVITY_PLAIN = 'Respond in three or four sentences. Do not use headings or lists, and do not quote or cite sources.';
+const BREVITY_VIVID = 'Respond in three or four sentences: name in one striking phrase what these harms share, give one concrete image, and anchor it with a single memorable quotation from scripture or the Church. No headings or lists.';
 const BREVITY = BREVITY_VIVID; // active directive; set to BREVITY_PLAIN to revert to the dry fallback
 
 // Build the user message: state the declared harms (the punched category labels, in schedule order),

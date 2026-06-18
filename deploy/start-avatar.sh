@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Start the avatar static server and launch Chromium in kiosk mode.
-# Intended for Raspberry Pi 5; also usable locally to simulate production.
+# Start the TTS proxy and launch the presentation (oracle kiosk + punch-card form).
+# Intended for Raspberry Pi 5 (oracle-only via AVATAR_ORACLE_ONLY=1); also for local showcase demos.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PORT="${AVATAR_PORT:-8765}"
-URL="http://127.0.0.1:${PORT}/?production=1"
+BASE="http://127.0.0.1:${PORT}"
+ORACLE_URL="${BASE}/?production=1&showcase=1"
+FORM_URL="${BASE}/showcase/form-1517a.html"
 
 cd "${REPO_ROOT}"
 
@@ -41,11 +43,47 @@ if ! curl -sf "http://127.0.0.1:${PORT}/tts/health" >/dev/null 2>&1; then
   sleep 1
 fi
 
-exec "${CHROMIUM}" \
-  --kiosk \
-  --noerrdialogs \
-  --disable-infobars \
-  --disable-session-crashed-bubble \
-  --no-first-run \
-  --disable-translate \
-  --app="${URL}"
+CHROMIUM_FLAGS=(
+  --noerrdialogs
+  --disable-infobars
+  --disable-session-crashed-bubble
+  --no-first-run
+  --disable-translate
+  --autoplay-policy=no-user-gesture-required
+)
+
+# Final install (Pi altar display only): AVATAR_ORACLE_ONLY=1 skips the showcase form.
+if [[ "${AVATAR_ORACLE_ONLY:-}" == "1" ]]; then
+  ORACLE_URL="${BASE}/?production=1"
+  exec "${CHROMIUM}" "${CHROMIUM_FLAGS[@]}" --kiosk --app="${ORACLE_URL}"
+fi
+
+echo "Presentation mode:"
+echo "  Oracle (kiosk):  ${ORACLE_URL}"
+echo "  Punch-card form: ${FORM_URL}"
+echo "Put the oracle fullscreen on the external display; keep the form on the visitor screen."
+echo "Tap the oracle screen once before the first submission (enables audio in this window)."
+
+launch_kiosk() {
+  local url="$1"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    # New Chrome instance so --autoplay-policy and other flags actually apply.
+    open -na "Google Chrome" --args \
+      "${CHROMIUM_FLAGS[@]}" \
+      --kiosk \
+      --app="${url}"
+  else
+    "${CHROMIUM}" "${CHROMIUM_FLAGS[@]}" --kiosk --app="${url}"
+  fi
+}
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  launch_kiosk "${FORM_URL}" &
+  sleep 1
+  launch_kiosk "${ORACLE_URL}"
+  if [[ -n "${SERVER_PID:-}" ]]; then wait "${SERVER_PID}"; fi
+else
+  "${CHROMIUM}" "${CHROMIUM_FLAGS[@]}" --kiosk --app="${FORM_URL}" &
+  sleep 1
+  exec "${CHROMIUM}" "${CHROMIUM_FLAGS[@]}" --kiosk --app="${ORACLE_URL}"
+fi

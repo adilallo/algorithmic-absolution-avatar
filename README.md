@@ -21,11 +21,13 @@ Open `http://127.0.0.1:8765/`, type text, press Enter or click **Speak**. See [d
 Production hides dev controls and runs fullscreen for the altar screen. See [deploy/README.md](deploy/README.md) for full Pi setup.
 
 1. In `config.js`, set `window.TALKINGHEAD_PRODUCTION = true` (or use `?production=1` on the URL for testing).
-2. Serve the repo and launch kiosk mode:
+2. Launch presentation mode (oracle kiosk + punch-card form):
 
 ```bash
 ./deploy/start-avatar.sh
 ```
+
+For the final altar install (oracle only, no form): `AVATAR_ORACLE_ONLY=1 ./deploy/start-avatar.sh`
 
 3. Upstream systems trigger speech via the browser global (devtools for testing):
 

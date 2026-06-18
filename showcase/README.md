@@ -15,23 +15,15 @@ installation drives the avatar from the physical card reader, which calls the sa
 
 ## Run it (one MacBook + one external monitor)
 
-1. Start the proxy (serves everything on one origin, injects the API keys server-side):
-   ```bash
-   node deploy/tts-proxy/server.js
-   ```
-2. **External monitor — the oracle.** Open and put this window fullscreen:
-   ```
-   http://127.0.0.1:8765/?production=1&showcase=1
-   ```
-3. **Laptop screen — the confession station.** Open this and give the visitor the mouse:
-   ```
-   http://127.0.0.1:8765/showcase/form-1517a.html
-   ```
+From the repo root:
 
-Both URLs must be the **same origin** (both `127.0.0.1:8765`) — that is what lets the card
-reach the avatar. The card's bottom-right `link:` readout shows `received by oracle` once the
-avatar window has acknowledged a submission; if it says *oracle window not detected*, the avatar
-window isn't open with `?showcase` on the same origin.
+```bash
+./deploy/start-avatar.sh
+```
+
+This starts the proxy (if needed) and opens both windows — oracle kiosk (`?production=1&showcase=1`) and the punch-card form. Put the oracle fullscreen on the external display; keep the form on the visitor screen.
+
+Both URLs must be the **same origin** (`127.0.0.1:8765`) — that is what lets the card reach the avatar. The card's bottom-right `link:` readout shows `received by oracle` once the avatar window has acknowledged a submission; if it says *oracle window not detected*, the oracle window isn't open with `?showcase` on the same origin.
 
 Click **Punch a new card** on the card after each visitor to reset.
 

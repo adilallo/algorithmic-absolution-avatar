@@ -21,22 +21,26 @@ chmod +x deploy/start-avatar.sh
 ./deploy/start-avatar.sh
 ```
 
+This starts the TTS proxy (if needed) and opens **both** presentation windows:
+
+| Window | URL | Screen |
+|--------|-----|--------|
+| Oracle (kiosk, fullscreen) | `http://127.0.0.1:8765/?production=1&showcase=1` | External display / altar |
+| Punch-card form (kiosk) | `http://127.0.0.1:8765/showcase/form-1517a.html` | Visitor / laptop screen |
+
+Drag the oracle to the external monitor and leave the form where the visitor sits. The form posts punched categories to the oracle over a same-origin `BroadcastChannel`.
+
+Oracle-only (final install, no showcase form):
+
+```bash
+AVATAR_ORACLE_ONLY=1 ./deploy/start-avatar.sh
+```
+
 Or run just the proxy (serves the page **and** `/tts` on one origin):
 
 ```bash
 node deploy/tts-proxy/server.js   # http://127.0.0.1:8765/
 ```
-
-Then launch Chromium/Chrome:
-
-```bash
-chromium-browser \
-  --kiosk --noerrdialogs --disable-infobars --disable-session-crashed-bubble \
-  --no-first-run --disable-translate \
-  --app=http://127.0.0.1:8765/?production=1
-```
-
-On macOS, use Google Chrome with the same flags.
 
 ### Verify locally
 

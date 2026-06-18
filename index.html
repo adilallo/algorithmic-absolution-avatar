@@ -52,6 +52,13 @@
   }
   body.production #harm-panel { display: none; }
   body.production #status { display: none; }   /* production = avatar view only, no UI/overlays */
+  /* Showcase two-window demo: one tap on the oracle unlocks Web Audio (clicks on the form don't). */
+  #showcase-audio-prompt {
+    position: fixed; inset: 0; z-index: 10; pointer-events: none;
+    display: flex; align-items: flex-end; justify-content: center;
+    padding-bottom: 40px; font-size: 12px; letter-spacing: 0.06em;
+    color: rgba(255,255,255,0.38); text-transform: uppercase;
+  }
   #harm-list {
     display: flex;
     flex-wrap: wrap;
@@ -121,6 +128,7 @@
     const isProduction =
       window.TALKINGHEAD_PRODUCTION === true ||
       new URLSearchParams(location.search).has("production");
+    const isShowcase = new URLSearchParams(location.search).has("showcase");
 
     if (isProduction) {
       document.body.classList.add("production");
@@ -232,7 +240,6 @@
     const __idleQ = new THREE.Quaternion();
     const __axX = new THREE.Vector3(1,0,0), __axY = new THREE.Vector3(0,1,0), __axZ = new THREE.Vector3(0,0,1);
 
-    // Warm sanctuary lighting (from the leveled preview) + production TTS.
     const head = new TalkingHead(avatarEl, {
       // Same-origin proxy that injects the Google key server-side and forwards to
       // v1beta1/text:synthesize. ttsApikey is intentionally omitted so TalkingHead appends no ?key=.
@@ -245,6 +252,45 @@
     });
 
     const avatarUrl = window.TALKINGHEAD_AVATAR_URL || "./avatar.glb";
+
+    // Showcase: speech must wait for a user gesture IN THIS WINDOW (form clicks don't count).
+    let __audioReadyResolve;
+    const __audioReady = isShowcase
+      ? new Promise((resolve) => { __audioReadyResolve = resolve; })
+      : Promise.resolve();
+
+    async function ensureAudioUnlocked() {
+      if (!head.armature) return false;
+      if (!head.isRunning) head.start();
+      const ctx = head.audioCtx;
+      if (!ctx) return false;
+      if (ctx.state === "running") return true;
+      if (ctx.state !== "suspended" && ctx.state !== "interrupted") return false;
+      const resume = ctx.resume();
+      const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("audio resume timeout")), 1000));
+      try {
+        await Promise.race([resume, timeout]);
+        return ctx.state === "running";
+      } catch (e) {
+        console.warn("[avatar] audio unlock failed:", e.message || e);
+        return false;
+      }
+    }
+
+    function setupShowcaseAudioUnlock() {
+      if (!isShowcase) return;
+      const prompt = document.createElement("div");
+      prompt.id = "showcase-audio-prompt";
+      prompt.textContent = "Tap once to enable audio";
+      document.body.appendChild(prompt);
+      const unlock = async () => {
+        prompt.remove();
+        if (await ensureAudioUnlocked()) __audioReadyResolve();
+      };
+      document.addEventListener("pointerdown", unlock, { once: true });
+      // If Chrome was launched with --autoplay-policy, unlock without a tap.
+      void ensureAudioUnlocked().then((ok) => { if (ok) { prompt.remove(); __audioReadyResolve(); } });
+    }
 
     try {
       const headCheck = await fetch(avatarUrl, { method: "HEAD" });
@@ -286,12 +332,18 @@
         }
       );
       hideStatus();
+      setupShowcaseAudioUnlock();
 
       // Speech is the production contract; wire it before the cosmetic render layer.
-      window.avatarSpeak = (text) => {
+      window.avatarSpeak = async (text) => {
         const t = String(text ?? "").trim();
         if (!t) return;
-        try { ensureVoiceFX(); head.speakText(t); }
+        try {
+          await __audioReady;
+          await ensureAudioUnlocked();
+          ensureVoiceFX();
+          head.speakText(t);
+        }
         catch (err) {
           console.error("[avatar] speak failed:", err);
           if (!isProduction) showStatus(`Speak failed: ${err}`, true);
@@ -346,7 +398,7 @@
         try {
           const labels = declaredLabels(categoryTotals, await absCategories()).map((l) => l.toLowerCase());
           const readback = labels.length
-            ? "You have declared the following: " + speakList(labels) + "."
+            ? "You have declared the following. " + speakList(labels) + "."
             : "You have declared no category of harm.";
           window.playOpeningGesture?.();   // varied opening gesture, synced to the read-back utterance
           window.avatarSpeak("Your card has been received and is being processed. " + readback);
@@ -1176,7 +1228,9 @@
     }
     // ===== END SHOWCASE BRIDGE =====
 
+    // Two-window showcase: don't suspend audio when the form window steals focus.
     document.addEventListener("visibilitychange", () => {
+      if (isShowcase) return;
       if (document.visibilityState === "visible") head.start();
       else head.stop();
     });
