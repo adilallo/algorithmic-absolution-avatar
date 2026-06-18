@@ -90,22 +90,37 @@ const CATEGORIES = [
   { id: 'inheriting_advantage_you_did_not_earn', label: 'INHERITING ADVANTAGE YOU DID NOT EARN' },
 ];
 
-// EXPERIMENT (andy, 2026-06-16): no system prompt — send ONLY the declared harms (the user message)
-// and see what the model does unprompted. While this is empty, getAbsolution() omits the system
-// message entirely. Set it to a non-empty string to reinstate guidance (the prior cleared prompt is
-// in git history). NOTE: with no system prompt the model is unconstrained — cleanForSpeech (strip +
-// 600-char cap) and the refusal guard are the only backstops on what reaches the avatar.
+// IMPORTANT (verified 2026-06-17): magisterium-1 IGNORES the system message. A system prompt saying
+// "ignore the user, reply only with ACKNOWLEDGED" still returned a 4,865-char cited essay — it answers
+// the user query and disregards the system role. So we keep SYSTEM_PROMPT EMPTY (getAbsolution omits
+// the system message) and put every instruction the model must obey — including BREVITY below — in the
+// USER message, where it IS honored. The conditional in getAbsolution() is kept for portability to a
+// model that does respect system prompts; set this non-empty to use it there.
 const SYSTEM_PROMPT = '';
 
-// Build the user message: simply state the declared harms (the punched category labels, in
-// schedule order). The model responds freely; we speak its response. `categories` is the output of
-// normalizeTotals(): canonical {id,label}, ordered.
+// Directive appended to the USER message — the only place magisterium-1 obeys instructions (see the
+// SYSTEM_PROMPT note above). It keeps the answer brief + COMPLETE (finish_reason "stop"), not the
+// ~1,700–4,900-char per-category essay the model gives unprompted, and NOT a max_tokens/cleanForSpeech
+// truncation. Two options; `BREVITY` selects the active one:
+//   BREVITY_VIVID (active, andy 2026-06-17) — still brief but PERMITS citation and draws out a concrete
+//     image + a memorable quotation. Verified to produce fresh per-card imagery (a bakery whose ovens
+//     never cool; a neighborhood well locked and sold by the cup) with a scripture/magisterial anchor,
+//     ~300–500 chars. cleanForSpeech strips the markdown/footnote markers; the quoted text is spoken.
+//   BREVITY_PLAIN (fallback) — dry, no quotes/imagery; revert to this if the vivid one drifts long/off.
+// Keep the word "absolution"/"absolve" OUT of either (it triggers Magisterium's "only a priest" refusal).
+const BREVITY_PLAIN = 'Respond in no more than two or three sentences. Do not use headings or lists, and do not quote or cite sources.';
+const BREVITY_VIVID = 'Respond in two or three sentences: name in one striking phrase what these harms share, give one concrete image, and anchor it with a single memorable quotation from scripture or the Church. No headings or lists.';
+const BREVITY = BREVITY_VIVID; // active directive; set to BREVITY_PLAIN to revert to the dry fallback
+
+// Build the user message: state the declared harms (the punched category labels, in schedule order),
+// then the brevity directive. The model responds freely within that length; we speak its response.
+// `categories` is the output of normalizeTotals(): canonical {id,label}, ordered.
 function buildUserPrompt(categories) {
   if (!categories.length) {
-    return 'A card was submitted declaring no category of harm.';
+    return `A card was submitted declaring no category of harm.\n\n${BREVITY}`;
   }
   const lines = categories.map((c) => `- ${c.label}`).join('\n');
-  return `A card was submitted declaring these categories of harm:\n${lines}`;
+  return `A card was submitted declaring these categories of harm:\n${lines}\n\n${BREVITY}`;
 }
 
 // --- Canned fallback bank (on-theme; used when the API is unavailable/over-cap) ------------
@@ -129,6 +144,50 @@ const CANNED = [
 function pickCanned(categories) {
   const sum = categories.reduce((s, c) => s + CATEGORIES.indexOf(c) + 1, 0);
   return CANNED[(sum + categories.length) % CANNED.length];
+}
+
+// --- Baked per-submission fallback (offline-generated; one entry per punch-tuple) -----------
+// A text fallback for a distinct submission — the unordered set of punched categories — so an API
+// error / timeout / connection loss yields the RELEVANT line for the exact card rather than the
+// generic CANNED rotation. The live Magisterium call stays primary; this is used only on a failure
+// branch. Audio is NOT cached — Google TTS still speaks whatever text we return.
+//
+// POPULATED LAZILY (write-on-success): every successful live response calls saveBaked(), so the file
+// fills from real visits at zero extra API cost. (Optional: `bake-fallbacks.js` can pre-warm any/all
+// of the 1024 tuples up front.) A card therefore has a tailored fallback once it has been served live
+// at least once; until then a failure falls back to the generic CANNED line.
+//
+// KEY is ORDER-INDEPENDENT BY CONSTRUCTION: ids sorted alphabetically before joining, so {A,B} and
+// {B,A} map to the same entry (2^10 = 1024 possible cards incl. the blank card → key ''). The
+// generator and saveBaked build keys with this same function, so lookups always agree.
+const FALLBACK_FILE = path.join(__dirname, 'absolution-fallbacks.json');
+let bakedMap = null;
+function loadBaked() {
+  if (bakedMap) return bakedMap;
+  try { bakedMap = JSON.parse(fs.readFileSync(FALLBACK_FILE, 'utf8')); } catch { bakedMap = {}; }
+  return bakedMap;
+}
+function fallbackKey(categories) {
+  return categories.map((c) => c.id).slice().sort().join('|');
+}
+// Baked text for this exact submission if present, else the generic CANNED line. Never throws.
+function bakedFallback(categories) {
+  const t = loadBaked()[fallbackKey(categories)];
+  return (typeof t === 'string' && t.trim()) ? t.trim() : pickCanned(categories);
+}
+// Persist a successful live response as this submission's fallback (lazy self-populate). The write is
+// synchronous (atomic tmp+rename) so it can't interleave with another request's save, and it's wrapped
+// so a disk error never breaks the absolution being returned. No-op if the text is unchanged.
+function saveBaked(categories, text) {
+  try {
+    const m = loadBaked();
+    const k = fallbackKey(categories);
+    if (m[k] === text || typeof text !== 'string' || !text.trim()) return;
+    m[k] = text;
+    const tmp = FALLBACK_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(m));
+    fs.renameSync(tmp, FALLBACK_FILE);
+  } catch { /* best effort — caching must never break the response */ }
 }
 
 // --- Selection normalization ---------------------------------------------------------------
@@ -219,14 +278,14 @@ async function getAbsolution(rawTotals) {
 
   // No key configured -> serve canned (the kiosk still works for art-direction/dev without a key).
   if (!cfg.apiKey) {
-    return { text: pickCanned(categories), source: 'fallback', model: null, latencyMs: 0, finishReason: 'no_api_key' };
+    return { text: bakedFallback(categories), source: 'fallback', model: null, latencyMs: 0, finishReason: 'no_api_key' };
   }
 
   // Daily live-call cap -> canned (protects free-tier / billing).
   rollUsage();
   if (usage.count >= cfg.dailyRequestCap) {
     console.warn(`[absolution] daily cap reached (${usage.count}/${cfg.dailyRequestCap}); serving canned`);
-    return { text: pickCanned(categories), source: 'fallback', model: null, latencyMs: 0, finishReason: 'daily_cap' };
+    return { text: bakedFallback(categories), source: 'fallback', model: null, latencyMs: 0, finishReason: 'daily_cap' };
   }
 
   const ac = new AbortController();
@@ -254,7 +313,7 @@ async function getAbsolution(rawTotals) {
     const bodyText = await r.text();
     if (!r.ok) {
       console.warn(`[absolution] magisterium status=${r.status} body=${bodyText.slice(0, 300)}`);
-      return { text: pickCanned(categories), source: 'fallback', model: cfg.model, latencyMs: Date.now() - t0, finishReason: `http_${r.status}` };
+      return { text: bakedFallback(categories), source: 'fallback', model: cfg.model, latencyMs: Date.now() - t0, finishReason: `http_${r.status}` };
     }
 
     let data;
@@ -265,7 +324,7 @@ async function getAbsolution(rawTotals) {
 
     if (!text) {
       console.warn('[absolution] magisterium returned no message content; serving canned');
-      return { text: pickCanned(categories), source: 'fallback', model: cfg.model, latencyMs: Date.now() - t0, finishReason: 'empty_response' };
+      return { text: bakedFallback(categories), source: 'fallback', model: cfg.model, latencyMs: Date.now() - t0, finishReason: 'empty_response' };
     }
 
     // We got HTTP 200 with content — it was billed (retrieval tokens) regardless of usability, so
@@ -280,10 +339,11 @@ async function getAbsolution(rawTotals) {
     // speak canned instead of a doctrinal refusal. See ABSOLUTION_REFUSAL_GUARD.
     if (cfg.refusalGuard && looksLikeRefusal(text)) {
       console.warn(`[absolution] response looks like a refusal; serving canned ms=${Date.now() - t0}${tok} head="${text.slice(0, 160).replace(/\s+/g, ' ')}"`);
-      return { text: pickCanned(categories), source: 'fallback', model: cfg.model, latencyMs: Date.now() - t0, finishReason: 'refused' };
+      return { text: bakedFallback(categories), source: 'fallback', model: cfg.model, latencyMs: Date.now() - t0, finishReason: 'refused' };
     }
 
     const spoken = cleanForSpeech(text, cfg.maxSpokenChars);
+    saveBaked(categories, spoken); // lazy self-populate: this card's fallback for any future failure
     console.log(`[absolution] magisterium -> ok cats=${categories.length} raw=${text.length} spoken=${spoken.length} ms=${Date.now() - t0} day=${usage.count} dayTokens=${usage.tokens}${tok}`);
     return {
       text: spoken,
@@ -295,7 +355,7 @@ async function getAbsolution(rawTotals) {
   } catch (e) {
     const timedOut = e.name === 'AbortError';
     console.warn(`[absolution] ${timedOut ? `timeout after ${cfg.timeoutMs}ms` : 'request failed: ' + e.message}; serving canned`);
-    return { text: pickCanned(categories), source: 'fallback', model: cfg.model, latencyMs: Date.now() - t0, finishReason: timedOut ? 'timeout' : 'fetch_error' };
+    return { text: bakedFallback(categories), source: 'fallback', model: cfg.model, latencyMs: Date.now() - t0, finishReason: timedOut ? 'timeout' : 'fetch_error' };
   } finally {
     clearTimeout(timer);
   }
@@ -359,4 +419,4 @@ function health() {
   };
 }
 
-module.exports = { getAbsolution, health, normalizeTotals, buildUserPrompt, pickCanned, cleanForSpeech, looksLikeRefusal, CATEGORIES, SYSTEM_PROMPT, CANNED };
+module.exports = { getAbsolution, health, normalizeTotals, buildUserPrompt, pickCanned, bakedFallback, fallbackKey, cleanForSpeech, looksLikeRefusal, readConfig, CATEGORIES, SYSTEM_PROMPT, CANNED };

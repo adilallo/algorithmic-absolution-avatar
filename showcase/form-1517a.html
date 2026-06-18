@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Form 1517-A — Office of Algorithmic Absolution</title>
+
+<!--
+  Denver showcase ONLY. Standalone punch-card submission UI for the two-screen setup.
+  Run on the laptop screen; the oracle runs in a second window/monitor as
+  index.html?production=1&showcase=1. This page posts the punched card over a
+  same-origin BroadcastChannel("absolution"); the avatar's showcase bridge forwards it to
+  window.requestAbsolution(). Nothing here ships to the final install — delete showcase/.
+
+  Serve from the proxy so it is same-origin with the avatar AND can read the canonical
+  category list:  node deploy/tts-proxy/server.js  ->  http://127.0.0.1:8765/showcase/form-1517a.html
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600&family=Special+Elite&display=swap" rel="stylesheet" />
+
+<style>
+  :root {
+    --paper: #efe7d6;
+    --paper-edge: #e7ddc8;
+    --ink: #2b2620;
+    --ink-soft: #6b6253;
+    --rule: #b8ac94;
+    --circle: #5c5446;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Special Elite", "Courier New", monospace;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    display: flex;
+    justify-content: center;
+    padding: 32px 18px 56px;
+  }
+  .card {
+    width: 100%;
+    max-width: 640px;
+  }
+
+  /* Masthead */
+  .title {
+    font-family: "Cinzel", Georgia, serif;
+    font-weight: 600;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    line-height: 1.06;
+    font-size: clamp(30px, 6.2vw, 46px);
+    margin: 4px 0 14px;
+  }
+  .formno {
+    text-align: center;
+    letter-spacing: 0.42em;
+    font-size: 15px;
+    margin: 0 0 20px 14px;
+    color: var(--ink);
+  }
+  .rule { border: 0; border-top: 1px solid var(--rule); margin: 16px 0; }
+
+  .meta {
+    display: flex;
+    justify-content: space-between;
+    letter-spacing: 0.18em;
+    font-size: 16px;
+  }
+
+  .instructions {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.7;
+    font-size: 15.5px;
+    margin: 4px 0;
+  }
+
+  /* Category rows = big click targets */
+  .list { margin: 6px 0 4px; }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px dotted var(--rule);
+    padding: 20px 4px;
+    cursor: pointer;
+    color: var(--ink);
+    font: inherit;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 16px;
+    transition: background 90ms ease;
+  }
+  .row:last-child { border-bottom: 0; }
+  .row:hover { background: rgba(92,84,70,0.06); }
+  .row:focus-visible { outline: 2px solid var(--circle); outline-offset: 2px; }
+  .label { line-height: 1.3; }
+
+  .punch {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1.5px solid var(--circle);
+    background: var(--paper);
+    position: relative;
+    transition: background 90ms ease, box-shadow 90ms ease;
+  }
+  .row[aria-pressed="true"] .punch {
+    background: var(--ink);
+    border-color: var(--ink);
+    box-shadow: inset 0 0 0 3px var(--paper), inset 0 0 0 4px var(--ink);
+  }
+
+  /* Footer + submit */
+  .fineprint {
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--ink-soft);
+    margin: 22px 0 26px;
+  }
+  .actions { display: flex; gap: 14px; align-items: center; }
+  .btn {
+    font-family: inherit;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    font-size: 16px;
+    padding: 14px 30px;
+    cursor: pointer;
+    border: 1.5px solid var(--ink);
+    border-radius: 2px;
+    transition: transform 80ms ease, background 120ms ease;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-submit { background: var(--ink); color: var(--paper); }
+  .btn-submit:hover { background: #1c1813; }
+  .btn-clear { background: transparent; color: var(--ink); }
+  .btn-clear:hover { background: rgba(92,84,70,0.08); }
+  .count { margin-left: auto; font-size: 14px; letter-spacing: 0.1em; color: var(--ink-soft); }
+
+  /* Received overlay (post-submit hold state) */
+  .veil {
+    position: fixed; inset: 0;
+    background: rgba(43,38,32,0.92);
+    color: var(--paper);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px;
+    z-index: 10;
+  }
+  .veil.show { display: flex; }
+  .veil .stamp {
+    font-family: "Cinzel", Georgia, serif;
+    letter-spacing: 0.12em;
+    font-size: clamp(26px, 5vw, 38px);
+    margin-bottom: 14px;
+  }
+  .veil .sub { font-size: 16px; letter-spacing: 0.06em; line-height: 1.6; max-width: 420px; opacity: 0.85; }
+  .veil .link {
+    text-transform: uppercase; letter-spacing: 0.2em; font-size: 14px;
+    margin-top: 30px; cursor: pointer; color: var(--paper);
+    border: 1px solid rgba(239,231,214,0.5); border-radius: 2px; padding: 12px 26px;
+    background: transparent;
+  }
+  .veil .link:hover { background: rgba(239,231,214,0.1); }
+
+  /* Tiny operator status (link/ack health) */
+  .status {
+    position: fixed; bottom: 8px; right: 10px;
+    font-size: 11px; letter-spacing: 0.08em; color: var(--ink-soft);
+    opacity: 0.65;
+  }
+</style>
+</head>
+<body>
+  <main class="card" aria-label="Office of Algorithmic Absolution, Form 1517-A">
+    <h1 class="title">Office of<br />Algorithmic<br />Absolution</h1>
+    <p class="formno">FORM 1517-A</p>
+    <hr class="rule" />
+    <div class="meta"><span>NO.&nbsp;0000847</span><span>REV.&nbsp;CDLXXXIX</span></div>
+    <hr class="rule" />
+    <p class="instructions">Punch all applicable categories. Incomplete forms processed as submitted. Retain no copy. Do not fold.</p>
+    <hr class="rule" />
+
+    <div class="list" id="list"></div>
+
+    <p class="fineprint">By punching this card, you acknowledge that absolution is a calculated output and that residual liability cannot be assigned. No record retained.</p>
+
+    <div class="actions">
+      <button type="button" class="btn btn-submit" id="submit">Submit</button>
+      <button type="button" class="btn btn-clear" id="clear">Clear</button>
+      <span class="count" id="count">0 punched</span>
+    </div>
+  </main>
+
+  <div class="veil" id="veil" role="status" aria-live="polite">
+    <div class="stamp">Card received</div>
+    <div class="sub" id="veilsub">The Office is processing your declaration.</div>
+    <button type="button" class="link" id="newcard">Punch a new card</button>
+  </div>
+
+  <div class="status" id="status">link: idle</div>
+
+  <script>
+    // Canonical 10 categories (mirrors deploy/tts-proxy/absolution.js). Used as a fallback if the
+    // proxy's /absolution/categories endpoint is unreachable, so the card always renders.
+    const FALLBACK = [
+      { id: "taking_more_than_needed",               label: "TAKING MORE THAN NEEDED" },
+      { id: "using_more_than_your_share",            label: "USING MORE THAN YOUR SHARE" },
+      { id: "letting_others_bear_the_cost",          label: "LETTING OTHERS BEAR THE COST" },
+      { id: "undervaluing_care_given_to_you",        label: "UNDERVALUING CARE GIVEN TO YOU" },
+      { id: "benefiting_from_underpaid_labor",       label: "BENEFITING FROM UNDERPAID LABOR" },
+      { id: "claiming_what_belongs_to_many",         label: "CLAIMING WHAT BELONGS TO MANY" },
+      { id: "wanting_what_was_sold_to_you",          label: "WANTING WHAT WAS SOLD TO YOU" },
+      { id: "pricing_what_should_not_be_sold",       label: "PRICING WHAT SHOULD NOT BE SOLD" },
+      { id: "consuming_faster_than_things_renew",    label: "CONSUMING FASTER THAN THINGS RENEW" },
+      { id: "inheriting_advantage_you_did_not_earn", label: "INHERITING ADVANTAGE YOU DID NOT EARN" },
+    ];
+
+    const listEl   = document.getElementById("list");
+    const countEl  = document.getElementById("count");
+    const submitEl = document.getElementById("submit");
+    const clearEl  = document.getElementById("clear");
+    const veilEl    = document.getElementById("veil");
+    const veilSubEl = document.getElementById("veilsub");
+    const newCardEl = document.getElementById("newcard");
+    const statusEl  = document.getElementById("status");
+
+    const channel = ("BroadcastChannel" in window) ? new BroadcastChannel("absolution") : null;
+    let pendingTs = null;
+    let ackTimer  = null;
+
+    function setStatus(t) { statusEl.textContent = "link: " + t; }
+
+    function render(categories) {
+      listEl.innerHTML = "";
+      for (const c of categories) {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "row";
+        row.setAttribute("aria-pressed", "false");
+        row.dataset.id = c.id;
+        const lab = document.createElement("span");
+        lab.className = "label";
+        lab.textContent = c.label;
+        const punch = document.createElement("span");
+        punch.className = "punch";
+        punch.setAttribute("aria-hidden", "true");
+        row.append(lab, punch);
+        row.addEventListener("click", () => {
+          row.setAttribute("aria-pressed", row.getAttribute("aria-pressed") === "true" ? "false" : "true");
+          updateCount();
+        });
+        listEl.append(row);
+      }
+      updateCount();
+    }
+
+    function punchedIds() {
+      return [...listEl.querySelectorAll('.row[aria-pressed="true"]')].map((r) => r.dataset.id);
+    }
+    function updateCount() {
+      const n = punchedIds().length;
+      countEl.textContent = n + (n === 1 ? " punched" : " punched");
+    }
+
+    clearEl.addEventListener("click", () => {
+      listEl.querySelectorAll('.row[aria-pressed="true"]').forEach((r) => r.setAttribute("aria-pressed", "false"));
+      updateCount();
+    });
+
+    submitEl.addEventListener("click", () => {
+      const punched = punchedIds();
+      pendingTs = String(Date.now()) + ":" + Math.round(performance.now());
+      veilSubEl.textContent = "The Office is processing your declaration.";
+      veilEl.classList.add("show");
+      setStatus("submitted, awaiting oracle…");
+      if (channel) {
+        channel.postMessage({ type: "submit", punched: punched, ts: pendingTs });
+        clearTimeout(ackTimer);
+        ackTimer = setTimeout(() => {
+          if (pendingTs) {
+            veilSubEl.textContent = "Submitted. (Oracle window not detected — is index.html open with ?showcase on the same origin?)";
+            setStatus("no ack — check avatar window");
+          }
+        }, 1800);
+      } else {
+        veilSubEl.textContent = "Submitted, but this browser has no BroadcastChannel support.";
+      }
+    });
+
+    newCardEl.addEventListener("click", () => {
+      pendingTs = null;
+      veilEl.classList.remove("show");
+      clearEl.click();
+      setStatus("idle");
+    });
+
+    if (channel) {
+      channel.onmessage = (ev) => {
+        const d = ev.data || {};
+        if (d.type === "ack" && d.ts === pendingTs) {
+          clearTimeout(ackTimer);
+          veilSubEl.textContent = "Received by the Office. The oracle is delivering your absolution.";
+          setStatus("received by oracle");
+        }
+      };
+    }
+
+    // Pull the canonical list from the proxy when available; fall back otherwise.
+    fetch("/absolution/categories")
+      .then((r) => (r.ok ? r.json() : Promise.reject("HTTP " + r.status)))
+      .then((d) => render((d && d.categories && d.categories.length) ? d.categories : FALLBACK))
+      .catch(() => render(FALLBACK));
+  </script>
+</body>
+</html>

@@ -6,7 +6,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  normalizeTotals, buildUserPrompt, cleanForSpeech, pickCanned, CATEGORIES, SYSTEM_PROMPT,
+  normalizeTotals, buildUserPrompt, cleanForSpeech, pickCanned, fallbackKey, bakedFallback,
+  CATEGORIES, SYSTEM_PROMPT,
 } = require('./absolution');
 
 const ids = (cats) => cats.map((c) => c.id);
@@ -83,8 +84,30 @@ test('buildUserPrompt: lists the declared harms in schedule order, no offsets', 
   assert.doesNotMatch(p, /absolv/i); // the word andy flagged as triggering Magisterium's refusal
 });
 
-test('SYSTEM_PROMPT: currently empty (experiment) — only the declared harms are sent to the model', () => {
-  assert.equal(SYSTEM_PROMPT, '');
+test('brevity lives in the USER message (magisterium-1 ignores system); SYSTEM_PROMPT stays empty', () => {
+  assert.equal(SYSTEM_PROMPT, ''); // verified 2026-06-17: the model disregards the system role
+  const p = buildUserPrompt([CATEGORIES[0], CATEGORIES[4]]);
+  assert.match(p, /sentences/i, 'user message carries the brevity directive');
+  assert.doesNotMatch(p, /absolv/i);            // must not trigger Magisterium's refusal
+  assert.match(buildUserPrompt([]), /sentences/i); // empty card carries it too
+});
+
+test('fallbackKey: order-independent (sorted), so {A,B} === {B,A}; blank card === ""', () => {
+  const a = CATEGORIES[0], b = CATEGORIES[4];
+  assert.equal(fallbackKey([a, b]), fallbackKey([b, a]), 'same set, either order -> same key');
+  assert.equal(fallbackKey([]), '', 'blank card maps to the empty key');
+  // count of distinct keys over all 2^10 subsets is exactly 1024 (order-independent)
+  const keys = new Set();
+  for (let mask = 0; mask < (1 << CATEGORIES.length); mask++) {
+    keys.add(fallbackKey(CATEGORIES.filter((_, i) => mask & (1 << i))));
+  }
+  assert.equal(keys.size, 1024);
+});
+
+test('bakedFallback: no baked file -> graceful CANNED default (never throws)', () => {
+  const out = bakedFallback([CATEGORIES[0]]);
+  assert.equal(typeof out, 'string');
+  assert.ok(out.length > 0);
 });
 
 test('cleanForSpeech: strips markup/footnotes and caps at a sentence boundary under maxChars', () => {

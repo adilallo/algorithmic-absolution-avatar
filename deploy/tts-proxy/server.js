@@ -247,7 +247,7 @@ async function handleAbsolution(req, res) {
   } catch (e) {
     // Defensive: getAbsolution shouldn't throw, but never leave the ritual without words.
     console.error('[absolution] unexpected error:', e.message);
-    sendJson(res, 200, { text: absolution.pickCanned([]), source: 'fallback', model: null });
+    sendJson(res, 200, { text: absolution.bakedFallback([]), source: 'fallback', model: null });
   } finally {
     absInFlight--;
   }

@@ -23,9 +23,17 @@
 //   bpQ     transmission band-pass Q
 //   revAmt  reverb tail amount 0..~0.8 (0 = dry)
 //   revLen  reverb tail length seconds (~RT60)
+// A preset MAY also carry ttsPitch/ttsRate/ttsVoice — TTS request params (not audio-graph FX). Most
+// presets omit them (FX-only) and leave whatever pitch/rate the avatar was created with. When present,
+// applyTtsParams() writes them onto head.avatar so selecting the preset reproduces the full voice.
+// Only `clear` (the shipping voice) carries them today.
 export const VOICE_PRESETS = {
-  // LOCKED-IN production look (ALG-9, dialed in by the artist): deep + slow + warm + reverberant,
-  // a low boxy "transmission" tint. Pairs with ttsVoice en-US-Standard-C, ttsPitch -6.5, ttsRate 0.82.
+  // SHIPPING production voice (dialed in by the artist): near-dry, warm, present — a close, intelligible
+  // read with only a hint of room. The one preset that carries its own ttsPitch/ttsRate/ttsVoice, so
+  // selecting it reproduces the full dialed-in sound. index.html ships this by default.
+  clear:        { hp: 75,  warm: 16, dip: 0,  sat: 0.0,  wet: 0.05, bpFreq: 2300, bpQ: 1.9, revAmt: 0.05, revLen: 0.25, ttsVoice: "en-US-Standard-C", ttsPitch: -5, ttsRate: 0.80 },
+  // Prior production look (ALG-9): deep + slow + warm + reverberant, a low boxy "transmission" tint.
+  // Pairs with ttsVoice en-US-Standard-C, ttsPitch -6.5, ttsRate 0.82.
   absolution:   { hp: 90,  warm: 10, dip: -4, sat: 0.1,  wet: 0.15, bpFreq: 500,  bpQ: 0.6, revAmt: 0.75, revLen: 0.65 },
   dry:          { hp: 90,  warm: 3,  dip: -2, sat: 0.0,  wet: 0.0,  bpFreq: 1700, bpQ: 0.8, revAmt: 0.0,  revLen: 0.6 },
   chamber:      { hp: 90,  warm: 4,  dip: -2, sat: 0.0,  wet: 0.0,  bpFreq: 1700, bpQ: 0.8, revAmt: 0.28, revLen: 0.6 },
@@ -88,4 +96,15 @@ export function applyVoiceParams(head, p) {
   fx.bp.frequency.value = p.bpFreq; fx.bp.Q.value = p.bpQ ?? 0.8;
   fx.wet.gain.value = p.wet;
   head.audioReverbNode.buffer = makeIR(ctx, p.revLen, p.revAmt);
+}
+
+// Apply the TTS request params a preset MAY carry (ttsPitch/ttsRate/ttsVoice) onto head.avatar, so
+// the next utterance is synthesized with them. These are NOT audio-graph FX (applyVoiceParams handles
+// those) — they go to Google TTS via TalkingHead. FX-only presets omit these keys, so this is a no-op
+// for them and the avatar keeps whatever pitch/rate it was created with.
+export function applyTtsParams(head, p) {
+  if (!head || !head.avatar || !p) return;
+  if (p.ttsVoice != null) head.avatar.ttsVoice = p.ttsVoice;
+  if (p.ttsPitch != null) head.avatar.ttsPitch = p.ttsPitch;
+  if (p.ttsRate  != null) head.avatar.ttsRate  = p.ttsRate;
 }

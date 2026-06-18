@@ -57,28 +57,41 @@ truth for the card wording and the normalizer.
 
 ## System prompt
 
-**Currently EMPTY (`SYSTEM_PROMPT = ''`) — experiment.** No system message is sent at all; the model
-receives only the user message (the declared harms) and responds unprompted. `getAbsolution()` omits
-the system role while this is empty. To reinstate guidance, set `SYSTEM_PROMPT` to a non-empty string
-(the prior "cleared" prompt — register + TTS/format + no-personal-data constraints — is in git
-history) and `getAbsolution()` will include it again. Keep the word "absolution" out of any such
-prompt (it triggers Magisterium's refusal — see below).
+**Empty (`SYSTEM_PROMPT = ''`) — because magisterium-1 IGNORES the system message.** Verified
+2026-06-17: a system prompt instructing *"ignore the user, reply only with the word ACKNOWLEDGED"*
+still returned a 4,865-char cited essay. The model answers the user query and disregards the system
+role, so any instruction it must obey — including brevity — has to live in the **user message** (see
+below). The `SYSTEM_PROMPT` conditional in `getAbsolution()` is kept only for portability to a model
+that *does* honor system prompts.
 
 ## User message
 
-The only thing sent to the model — just the declared harms (`buildUserPrompt()`):
+The declared harms **plus the `BREVITY` directive** (`buildUserPrompt()`) — the user message is the only
+place magisterium-1 obeys instructions, so the directive is appended here. Two directives are defined;
+`BREVITY` selects the active one:
+
+- **`BREVITY_VIVID` (active):** *"Respond in two or three sentences: name in one striking phrase what
+  these harms share, give one concrete image, and anchor it with a single memorable quotation from
+  scripture or the Church. No headings or lists."* — brief but permits citation; draws out fresh
+  per-card imagery + a quote (verified: a bakery whose ovens never cool; a neighborhood well locked and
+  sold by the cup). ~300–500 chars, `finish_reason: stop`.
+- **`BREVITY_PLAIN` (fallback):** *"Respond in no more than two or three sentences. Do not use headings
+  or lists, and do not quote or cite sources."* — dry, no quotes/imagery. Revert here if the vivid one
+  drifts long or off-tone.
 
 ```
 A card was submitted declaring these categories of harm:
 - BENEFITING FROM UNDERPAID LABOR
 - PRICING WHAT SHOULD NOT BE SOLD
+
+Respond in two or three sentences: name in one striking phrase what these harms share, give one concrete image, and anchor it with a single memorable quotation from scripture or the Church. No headings or lists.
 ```
 
-Blank card (nothing punched):
-
-```
-A card was submitted declaring no category of harm.
-```
+(Blank card swaps the harm list for "A card was submitted declaring no category of harm." and appends
+the same directive.) The directive must not contain the
+word "absolution"/"absolve" (refusal trigger). Tune the sentence count there to trade length for
+completeness — a "one sentence, 30 words" variant yields ~170 chars; "two or three sentences" a short
+paragraph.
 
 ## Avatar flow
 
@@ -95,28 +108,40 @@ The harm labels for the read-back are resolved client-side from `GET /absolution
 
 ## Length & structure
 
-With no system prompt there is **no length/format bound from the prompt** — the model returns
-whatever it returns. The only backstop is `cleanForSpeech`: it strips markup, lists, citations, and
+The **`BREVITY` directive in the user message** (two–three sentences) is the primary length control —
+the model returns a short, *complete* answer (`finish_reason: stop`), not a truncated one. Note no
+Magisterium request parameter controls verbosity/length/citations (the docs expose only `max_tokens`,
+`return_related_questions`, and input-only `safety_settings`; citations come back in a separate
+`citations` array), so the user-message instruction is the only non-truncating lever. The backstops
+remain in case it ignores the instruction: `cleanForSpeech` strips markup, lists, citations, and
 footnotes, then hard-caps at a sentence boundary under **1,800 chars** (`ABSOLUTION_MAX_SPOKEN_CHARS`,
-kept under the `/tts` 2,000-char gate, over which TTS 400s → silence). So a long or marked-up reply is
-trimmed before it reaches the avatar — at 1,800 the avatar speaks most of a ~4–5k-char Magisterium
-answer (≈2–3 min of speech). To read the full essay, raise `TTS_MAX_INPUT_CHARS` above its length too.
+kept under the `/tts` 2,000-char gate, over which TTS 400s → silence), and `max_tokens` (320) bounds
+the visible answer. These are safety nets, not the brevity mechanism — with the directive in place a
+reply normally lands well under them.
 
 ## Determinism (for a gallery)
 
 The model now authors the wording, so output varies per call. Knobs:
 
 - **Temperature `0.4`** (`ABSOLUTION_TEMPERATURE`) — keeps variation modest.
-- **Pre-bake / cache by punch-tuple — the real answer.** The input space is exactly `2^10 = 1024`
-  subsets, keyed by the sorted tuple of punched indices. Generate each required tuple once, review
-  it, store the cleaned text keyed by the tuple, and serve from cache at runtime. This pins each
-  selection to a chosen, reviewed line (so the gallery is stable and human-approved), removes the
-  ~25–42 s per-visit latency, and collapses Magisterium's ~28–37k-output-token-per-call RAG cost
-  (ALG-15) to a one-time batch. *(Caching is a separate ticket; this prompt is built to make it
-  trivial.)*
-- **Guardrails on any live / cache-miss call** (already in `absolution.js`): `cleanForSpeech`
-  strip-and-cap; the refusal guard (`ABSOLUTION_REFUSAL_GUARD`) swaps a refusal/role-break for
-  canned text; any failure falls back to an on-register canned line so the ritual never stalls.
+- **Per-submission fallback cache (implemented).** The live Magisterium call stays **primary**; the
+  cache is a *fallback* used only when a live call fails (error / timeout / connection loss / refusal
+  / over-cap). The input space is exactly `2^10 = 1024` subsets (incl. the blank card), keyed
+  **order-independently** by `fallbackKey()` (ids sorted alphabetically, so `{A,B} === {B,A}`). It is
+  populated **lazily (write-on-success)**: every successful live response calls `saveBaked()`, storing
+  its cleaned text in `absolution-fallbacks.json` — so the cache fills from real visits at **zero extra
+  API cost**, and a card that errors after having been served once speaks its own tailored line instead
+  of generic canned. A card not yet seen falls back to the generic `CANNED` rotation. The file is
+  gitignored runtime state (and lives in the proxy dir, which is never web-served).
+- **Optional pre-warm:** `bake-fallbacks.js` can generate any/all of the 1024 tuples up front
+  (resumable; `BAKE_LIMIT`/`BAKE_CONCURRENCY` env). It hits Magisterium directly (bypassing the proxy
+  day-cap) and uses the same `buildUserPrompt` + `cleanForSpeech`, so pre-warmed entries are identical
+  to what a live visit would have cached. Baking all 1024 is ~14M tokens (RAG-dominated) — weigh
+  against the live path's quota.
+- **Guardrails on every live / cache-miss call** (in `absolution.js`): `cleanForSpeech` strip-and-cap;
+  the refusal guard (`ABSOLUTION_REFUSAL_GUARD`) swaps a refusal/role-break for the fallback; any
+  failure routes through `bakedFallback()` → baked line if present, else generic canned, so the ritual
+  never stalls.
 
 ## No personal data
 

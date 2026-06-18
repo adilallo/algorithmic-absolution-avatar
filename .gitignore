@@ -6,6 +6,8 @@ avatar.glb
 deploy/tts-proxy/.env
 deploy/tts-proxy/.usage.json
 deploy/tts-proxy/.absolution-usage.json
+deploy/tts-proxy/absolution-fallbacks.json
+deploy/tts-proxy/absolution-fallbacks.json.tmp
 deploy/tts-proxy/node_modules/
 
 # Local Blender autosaves & dated safety backups (kept on disk, not committed)

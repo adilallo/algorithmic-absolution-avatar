@@ -13,6 +13,16 @@
   #ctl { position:fixed; right:10px; bottom:10px; z-index:10; display:flex; flex-wrap:wrap; justify-content:flex-end; max-width:80vw; gap:6px; }
   #ctl button { font:12px ui-monospace, Menlo, monospace; color:#1a120a; background:#d8c08a; border:0; padding:8px 12px; border-radius:6px; cursor:pointer; }
   #ctl button:disabled { opacity:.5; }
+  #tune { position:fixed; right:10px; top:10px; z-index:20; width:300px; max-height:90vh; overflow:auto;
+    font:11px ui-monospace, Menlo, monospace; color:#e8d6a0; background:rgba(0,0,0,.66);
+    padding:8px; border-radius:8px; border:1px solid rgba(216,192,138,.25); }
+  #tune .tune-row { display:flex; align-items:center; gap:6px; margin:3px 0; }
+  #tune .tune-head { margin-bottom:6px; }
+  #tune select, #tune button { font:11px ui-monospace,Menlo,monospace; color:#1a120a; background:#d8c08a; border:0; border-radius:5px; padding:4px 6px; cursor:pointer; }
+  #tune label { display:flex; align-items:center; gap:3px; color:#c8b888; }
+  #tune .tune-lab { width:120px; flex:0 0 auto; color:#c8b888; }
+  #tune .tune-num { width:40px; text-align:right; flex:0 0 auto; }
+  #tune input[type=range] { flex:1 1 auto; min-width:50px; accent-color:#d8c08a; }
 </style>
 </head>
 <body>
@@ -80,14 +90,10 @@
       heartCx:0.50, heartCy:0.25, heartScale:0.092, heartYoff:0.62,  // Sacred Heart on the sternum
       heartAmt:0.85, thornAmt:0.35, crossTop:0.40,
       bpm:62.0, beatDepth:1.0,                             // lub-dub
-      gestureBeat:34.0, gestureJit:5.0,                    // slow auto-bless
       // discrete emblems MOVED from the gold field onto the body as gold-leaf tattoos (baked into OracleSkin).
       // amounts zeroed here; geometry/uniforms kept so they can be dialed back into the field if wanted.
       christoAmt:0.0, christoScale:0.10, christoCx:0.22, christoCy:0.30,
-      sealAmt:0.0, sealC:[0.80,0.22], sealScale:0.085, sealPress:0.0,
       mandorlaAmt:0.0, mandorlaCx:0.52, mandorlaCy:0.45, mandorlaScale:0.30,
-      keysAmt:0.0, keysScale:0.16, keysReveal:1,
-      fleckAmt:0.0, fleckDensity:0.04, shred:0.0,
       tallyAmt:0.0, letterAmt:0.0, letterRadius:0.165,
       eyeAmt:0.0, eyeN:14.0, eyeRadius:0.225, eyeScale:0.026,   // ophanim eye-ring removed (set eyeAmt>0 to bring it back)
     };
@@ -105,10 +111,11 @@
         avatarSpeakingEyeContact:0.98, avatarSpeakingHeadMove:0.06 },
       (ev)=>{ if(ev.lengthComputable) hud.textContent = "loading "+Math.round(ev.loaded/ev.total*100)+"%"; });
 
+    window.head = head;  // dev: expose for live console tuning, e.g. head.gestureTemplates.strikeBreast["RightForeArm.rotation"].z = -1.6; head.playGesture("strikeBreast",4,false,450)
     const scene = head.scene, camera = head.camera, renderer = head.renderer;
     renderer.toneMapping = THREE.NoToneMapping;
     scene.background = new THREE.Color(ICON.groundR, ICON.groundG, ICON.groundB);
-    camera.fov = 8; camera.position.set(0,1.66,6.10); camera.updateProjectionMatrix();
+    camera.fov = 8; camera.position.set(0,1.66,7.0); camera.updateProjectionMatrix();  // fov-8 lens at pz 7.0 — matches the production kiosk frame (index.html)
     if (head.controls){ head.controls.target.set(0,1.66,0); head.controls.update(); }
 
     // Materials (unchanged icon grade)
@@ -166,10 +173,7 @@
         heartScale:{value:LV.heartScale}, heartYoff:{value:LV.heartYoff},
         heartAmt:{value:LV.heartAmt}, thornAmt:{value:LV.thornAmt}, crossTop:{value:LV.crossTop},
         christoAmt:{value:LV.christoAmt}, christoScale:{value:LV.christoScale}, christoC:{value:new THREE.Vector2(LV.christoCx, LV.christoCy)},
-        sealAmt:{value:LV.sealAmt}, sealScale:{value:LV.sealScale}, sealPress:{value:0.0}, sealC:{value:new THREE.Vector2(LV.sealC[0],LV.sealC[1])},
         mandorlaAmt:{value:LV.mandorlaAmt}, mandorlaScale:{value:LV.mandorlaScale}, breathe:{value:0}, mandorlaC:{value:new THREE.Vector2(LV.mandorlaCx, LV.mandorlaCy)},
-        keysAmt:{value:LV.keysAmt}, keysScale:{value:LV.keysScale}, keysReveal:{value:LV.keysReveal},
-        time:{value:0}, fleckAmt:{value:LV.fleckAmt}, fleckDensity:{value:LV.fleckDensity}, shred:{value:0},
         tallyAmt:{value:LV.tallyAmt}, letterAmt:{value:LV.letterAmt}, letterRadius:{value:LV.letterRadius},
         eyeAmt:{value:LV.eyeAmt}, eyeN:{value:LV.eyeN}, eyeRadius:{value:LV.eyeRadius}, eyeScale:{value:LV.eyeScale}, blink:{value:0}, blinkIndex:{value:0},
         atmoOn:{value:ATMO.on}, glowC:{value:new THREE.Vector2(ATMO.glowCx,ATMO.glowCy)},
@@ -188,10 +192,7 @@
         uniform float heartScale, heartYoff, heartAmt, thornAmt, crossTop;
         uniform vec2 headC, heartC;
         uniform float christoAmt, christoScale; uniform vec2 christoC;
-        uniform float sealAmt, sealScale, sealPress; uniform vec2 sealC;
         uniform float mandorlaAmt, mandorlaScale, breathe; uniform vec2 mandorlaC;
-        uniform float keysAmt, keysScale, keysReveal;
-        uniform float time, fleckAmt, fleckDensity, shred;
         uniform float tallyAmt, letterAmt, letterRadius;
         uniform float eyeAmt, eyeN, eyeRadius, eyeScale, blink, blinkIndex;
         uniform float atmoOn, haloAmt, haloTight, floorAmt, floorTop, floorWidth;
@@ -208,7 +209,7 @@
             if(d<f1){ f2=f1; f1=d; } else if(d<f2){ f2=d; } }}
           return vec2(sqrt(f1), sqrt(f2)); }
         float dot2(vec2 v){ return dot(v,v); }
-        // ---- emblem helpers (Chi-Rho, seal ring, keys, nimbus glyphs, vesica) ----
+        // ---- emblem helpers (Chi-Rho, nimbus glyphs, vesica) ----
         float christoStroke(vec2 p, vec2 a, vec2 b, float w){
           vec2 pa = p-a, ba = b-a;
           float h = clamp(dot(pa,ba)/dot(ba,ba), 0.0, 1.0);
@@ -229,7 +230,6 @@
           return strokes * punch;
         }
         float sdRing(vec2 p, float R, float w){ return abs(length(p) - R) - w; }
-        float sdSegment(vec2 p, vec2 a, vec2 b){ vec2 pa=p-a, ba=b-a; float h=clamp(dot(pa,ba)/dot(ba,ba),0.0,1.0); return length(pa-ba*h); }
         float sdCircle(vec2 p, float r){ return length(p)-r; }
         float sdSeg(vec2 p, vec2 a, vec2 b){ vec2 pa=p-a, ba=b-a; float h=clamp(dot(pa,ba)/dot2(ba),0.0,1.0); return length(pa-ba*h); }
         float glyphMask(vec2 q, int id, float w){
@@ -308,72 +308,6 @@
               float holes = christoMask(chi);
               c = mix(c, c*0.32, holes*christoAmt*goldMask);
             }
-            // ---- bulla / wax seal (committed/filed authentication stamp) ----
-            if (sealAmt > 0.001) {
-              float sPress = clamp(sealPress, 0.0, 1.0);
-              float sScale = sealScale * (1.0 + 0.06 * sPress);
-              vec2 sc = (puv - sealC * ar) / sScale;
-              float r = length(sc);
-              float disc = smoothstep(1.02, 0.98, r);
-              float rim  = smoothstep(0.86, 0.96, r) * smoothstep(1.00, 0.92, r);
-              float ring1 = 1.0 - smoothstep(0.0, 0.045, abs(r - 0.70));
-              float ring2 = 1.0 - smoothstep(0.0, 0.035, abs(r - 0.52));
-              float grooves = max(ring1, ring2) * disc;
-              vec2 q = abs(sc);
-              float barW = 0.085;
-              float barL = 0.34;
-              float crossV = (1.0 - smoothstep(0.0, 0.03, q.x - barW)) * (1.0 - smoothstep(0.0, 0.03, q.y - barL));
-              float crossH = (1.0 - smoothstep(0.0, 0.03, q.y - barW)) * (1.0 - smoothstep(0.0, 0.03, q.x - barL));
-              float device = max(crossV, crossH) * smoothstep(0.50, 0.46, r);
-              float pressAmt = sealAmt * goldMask;
-              float incised = max(grooves, device * 0.85) * disc;
-              c = mix(c, c * 0.45, incised * pressAmt * (0.85 + 0.45 * sPress));
-              c += c * rim * disc * 0.45 * pressAmt * (1.0 + 1.1 * sPress);
-              c += c * disc * 0.06 * pressAmt;
-            }
-            // --- crossed-keys (Keys of St. Peter, license to absolve) ---
-            if (lvOn>0.5 && keysAmt>0.001){
-              vec2 kc = vec2(0.30,0.16)*ar;
-              vec2 kp = (puv - kc) / max(keysScale,0.001);
-              float kd = 1e3;
-              for(int ki=0; ki<2; ki++){
-                float sgn = (ki==0)? 1.0 : -1.0;
-                float a = sgn*0.785398;
-                float cs=cos(a), sn=sin(a);
-                vec2 q = vec2(cs*kp.x + sn*kp.y, -sn*kp.x + cs*kp.y);
-                float shaft = sdSegment(q, vec2(0.0, 0.42), vec2(0.0,-0.46)) - 0.028;
-                float bow = abs(length(q - vec2(0.0,0.50)) - 0.115) - 0.030;
-                float t1 = sdSegment(q, vec2(0.0,-0.46), vec2(0.13,-0.46)) - 0.024;
-                float t2 = sdSegment(q, vec2(0.0,-0.30), vec2(0.10,-0.30)) - 0.024;
-                float key = min(min(shaft,bow), min(t1,t2));
-                kd = min(kd, key);
-              }
-              float rev = clamp(keysReveal,0.0,1.0);
-              float body = (1.0 - smoothstep(0.0,0.018,kd)) * keysAmt * rev;
-              float edge = (smoothstep(0.0,0.012,kd) - smoothstep(0.012,0.034,kd)) * keysAmt * rev;
-              c = mix(c, c*0.50, body * goldMask);
-              c += c * edge * 0.55 * goldMask;
-            }
-            // (4b) gold-leaf flecks: shredded confession drifting up as gilding
-            float fleck = 0.0;
-            for (int fl = 0; fl < 3; fl++) {
-              float fi = float(fl);
-              float scl = mix(70.0, 150.0, fi*0.5);
-              float spd = mix(0.012, 0.030, fi*0.5);
-              vec2 fuv = puv * scl;
-              fuv.y += time * spd * scl;
-              fuv += fi * 17.31;
-              vec2 cell = floor(fuv);
-              vec2 frc = fract(fuv) - 0.5;
-              float r = hash(cell + fi*3.7);
-              float rb = hash(cell + fi*3.7 + vec2(9.1,4.3));
-              float thr = mix(0.965, 0.86, clamp(fleckDensity + shred*0.6, 0.0, 1.0));
-              float on = step(thr, r);
-              vec2 jit = (vec2(hash(cell+vec2(1.7,8.3)), hash(cell+vec2(5.2,2.9))) - 0.5)*0.6;
-              float spk = smoothstep(0.34, 0.0, length(frc - jit));
-              fleck += on * spk * (rb < 0.5 ? -0.8 : 1.0);
-            }
-            c += c * fleck * fleckAmt * (1.0 + shred*1.6) * goldMask;
             // ---- nimbus upgrade: tally cells + faint halo letters (uses pr from glory block) ----
             float barV = smoothstep(0.018,0.0, abs(pr.x));
             float barH = smoothstep(0.018,0.0, abs(pr.y));
@@ -550,10 +484,7 @@
       u.heartScale.value=LV.heartScale; u.heartYoff.value=LV.heartYoff;
       u.heartAmt.value=LV.heartAmt; u.thornAmt.value=LV.thornAmt; u.crossTop.value=LV.crossTop;
       u.christoAmt.value=LV.christoAmt; u.christoScale.value=LV.christoScale; u.christoC.value.set(LV.christoCx, LV.christoCy);
-      u.sealAmt.value=LV.sealAmt; u.sealScale.value=LV.sealScale; u.sealPress.value=LV.sealPress; u.sealC.value.set(LV.sealC[0],LV.sealC[1]);
       u.mandorlaAmt.value=LV.mandorlaAmt; u.mandorlaScale.value=LV.mandorlaScale; u.mandorlaC.value.set(LV.mandorlaCx, LV.mandorlaCy); u.breathe.value=Math.sin(t*0.35);
-      u.keysAmt.value=LV.keysAmt; u.keysScale.value=LV.keysScale; u.keysReveal.value=LV.keysReveal;
-      u.time.value=t; u.fleckAmt.value=LV.fleckAmt; u.fleckDensity.value=LV.fleckDensity; u.shred.value=LV.shred;
       u.tallyAmt.value=LV.tallyAmt; u.letterAmt.value=LV.letterAmt; u.letterRadius.value=LV.letterRadius;
       __updateEyeBlink(performance.now());
       u.eyeAmt.value=LV.eyeAmt; u.eyeN.value=LV.eyeN; u.eyeRadius.value=LV.eyeRadius; u.eyeScale.value=LV.eyeScale; u.blink.value=__eyeBlink; u.blinkIndex.value=__eyeBlinkIndex;
@@ -607,12 +538,8 @@
       "RightHandThumb1.rotation":{x:0.3,y:-0.2,z:-0.3},
     };
 
-    let blessTimer;
-    function scheduleBless(){
-      const ms = (LV.gestureBeat + (Math.random()-0.5)*2*LV.gestureJit)*1000;
-      blessTimer = setTimeout(()=>{ head.playGesture("bless", 5, false, 900); scheduleBless(); }, ms);
-    }
-    scheduleBless();
+    // (auto-bless loop removed — this tuning page fires gestures from the buttons below; the kiosk drives
+    //  gestures from harm-form submission. No ambient repeat.)
 
     document.getElementById("bless").onclick   = ()=> head.playGesture("bless", 5, false, 900);
     document.getElementById("latin").onclick   = ()=> head.playGesture("blessLatin", 5, false, 900);
@@ -637,36 +564,6 @@
       let p = (now - __eyeBlinkT0) / __eyeBlinkDur;
       __eyeBlink = (p < 0 || p > 1) ? 0 : Math.sin(Math.min(p,1)*Math.PI);
     }
-
-    // ---- bulla-seal: stamp animation (verdict being filed) ----
-    window.pressSeal = function(){
-      if (window.__sealAnimating) return;
-      window.__sealAnimating = true;
-      const dur = 600, t0 = performance.now();
-      function step(now){
-        const k = Math.min(1, (now - t0) / dur);
-        let v;
-        if (k < 0.5){ const a = k / 0.5; v = a*a*(3.0-2.0*a); }
-        else        { const a = (1.0-k) / 0.5; v = a*a*(3.0-2.0*a); }
-        LV.sealPress = v;
-        if (k < 1){ requestAnimationFrame(step); }
-        else { LV.sealPress = 0; window.__sealAnimating = false; }
-      }
-      requestAnimationFrame(step);
-    };
-
-    // ---- gold-leaf-flecks: shred-echo control ----
-    window.shred = function(){
-      const t0 = performance.now(), dur = 900;
-      (function tick(){
-        const k = Math.min(1, (performance.now()-t0)/dur);
-        LV.shred = Math.sin(k*Math.PI);
-        if (k < 1) requestAnimationFrame(tick); else LV.shred = 0;
-      })();
-    };
-
-    // ---- crossed-keys: reveal hook ----
-    window.revealKeys = function(v){ LV.keysReveal = Math.max(0, Math.min(1, +v)); };
 
     // ---- Gestures: two-hand + sign-of-the-cross sequence ----
     // The camera stays locked on the heart-up portrait (fov 8, set above) for every gesture — no zoom on play.
@@ -757,6 +654,69 @@
       setTimeout(()=> head.playGesture("signLeftSh",  1.5, false, 700), 2400);
       setTimeout(()=> head.playGesture("signRightSh", 1.5, false, 700), 3600);
     }
+
+    /* ===== NEW canonical gestures (research 2026-06-17) — UNTUNED starting poses; prototype/tune here,
+            then port the winners into the kiosk OPENING_GESTURES rotation in index.html. ===== */
+    // strikeBreast — Confiteor "mea culpa": closed fist drawn to the sternum + a slight head bow. Reads only
+    // as MOTION, so it ships as a triple-tap (playStrikeBreast), never a static hold (frozen it == presentHeart).
+    head.gestureTemplates["strikeBreast"] = {
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:0.82,y:-0.02,z:-0.94},
+      "RightForeArm.rotation":{x:1.52,y:-0.98,z:-1.50}, "RightHand.rotation":{x:0.22,y:-0.56,z:-0.10},
+      "RightHandIndex1.rotation":{x:1.2,y:0,z:0}, "RightHandIndex2.rotation":{x:1.4,y:0,z:0},
+      "RightHandMiddle1.rotation":{x:1.2,y:0,z:0}, "RightHandMiddle2.rotation":{x:1.4,y:0,z:0},
+      "RightHandRing1.rotation":{x:1.5,y:0,z:0}, "RightHandRing2.rotation":{x:1.4,y:0,z:0},
+      "RightHandPinky1.rotation":{x:1.6,y:0,z:0}, "RightHandPinky2.rotation":{x:1.3,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.6,y:-0.2,z:-0.6}, "RightHandThumb2.rotation":{x:0.2,y:0.04,z:0.6},
+      "Neck.rotation":{x:0.16,y:0,z:0}, "Head.rotation":{x:0.16,y:0,z:0},
+    };
+    // fist lifted slightly off the chest, between taps (forearm a touch less flexed)
+    head.gestureTemplates["strikeBreastLift"] = {
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:0.82,y:0.18,z:-0.86},
+      "RightForeArm.rotation":{x:1.52,y:-0.68,z:-1.42}, "RightHand.rotation":{x:-0.12,y:-0.28,z:0.04},
+      "RightHandIndex1.rotation":{x:1.2,y:0,z:0}, "RightHandIndex2.rotation":{x:1.4,y:0,z:0},
+      "RightHandMiddle1.rotation":{x:1.2,y:0,z:0}, "RightHandMiddle2.rotation":{x:1.4,y:0,z:0},
+      "RightHandRing1.rotation":{x:1.5,y:0,z:0}, "RightHandRing2.rotation":{x:1.4,y:0,z:0},
+      "RightHandPinky1.rotation":{x:1.6,y:0,z:0}, "RightHandPinky2.rotation":{x:1.3,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.6,y:-0.2,z:-0.6}, "RightHandThumb2.rotation":{x:0.2,y:0.04,z:0.6},
+      "Neck.rotation":{x:0.14,y:0,z:0}, "Head.rotation":{x:0.14,y:0,z:0},
+    };
+    function playStrikeBreast(){            // "mea culpa, mea culpa, mea maxima culpa" — three percussive taps
+      head.playGesture("strikeBreast",     4, false, 450);
+      setTimeout(()=> head.playGesture("strikeBreastLift", 1, false, 180),  650);
+      setTimeout(()=> head.playGesture("strikeBreast",     1, false, 160),  880);
+      setTimeout(()=> head.playGesture("strikeBreastLift", 1, false, 180), 1120);
+      setTimeout(()=> head.playGesture("strikeBreast",     4, false, 160), 1360);
+    }
+
+    // misereatur — joined palm-to-palm prayer hands on the centerline (pre-absolution intercession); orans pulled in
+    head.gestureTemplates["misereatur"] = {
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:0.90,y:-0.22,z:-1.20},
+      "RightForeArm.rotation":{x:-0.08,y:0.64,z:-2.10}, "RightHand.rotation":{x:-0.18,y:0.84,z:-0.28},
+      "RightHandIndex1.rotation":{x:0.0,y:0,z:0}, "RightHandMiddle1.rotation":{x:0.0,y:0,z:0},
+      "RightHandRing1.rotation":{x:0.0,y:0,z:0}, "RightHandPinky1.rotation":{x:0.0,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.1,y:-0.2,z:-0.3},
+      "LeftShoulder.rotation":{x:1.758,y:-0.099,z:-1.604}, "LeftArm.rotation":{x:0.90,y:0.22,z:1.20},
+      "LeftForeArm.rotation":{x:-0.08,y:-0.64,z:2.10}, "LeftHand.rotation":{x:-0.18,y:-0.84,z:0.28},
+      "LeftHandIndex1.rotation":{x:0.0,y:0,z:0}, "LeftHandMiddle1.rotation":{x:0.0,y:0,z:0},
+      "LeftHandRing1.rotation":{x:0.0,y:0,z:0}, "LeftHandPinky1.rotation":{x:0.0,y:0,z:0},
+      "LeftHandThumb1.rotation":{x:0.1,y:0.2,z:0.3},
+      "Neck.rotation":{x:0.12,y:0,z:0}, "Head.rotation":{x:0.30,y:0,z:0},
+    };
+
+    // receive — arms crossed over the chest (Byzantine approach / repose). A listening/rest state, not a rite beat.
+    // WATCH the bottom frame edge: the forearm-crossing point can dip below y~1.34 at fov 8.
+    head.gestureTemplates["receive"] = {
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.30,y:0.10,z:-0.25},
+      "RightForeArm.rotation":{x:0.0,y:0.10,z:-1.85}, "RightHand.rotation":{x:-0.10,y:-0.20,z:-0.30},
+      "RightHandIndex1.rotation":{x:0.05,y:0,z:0}, "RightHandMiddle1.rotation":{x:0.05,y:0,z:0},
+      "RightHandRing1.rotation":{x:0.05,y:0,z:0}, "RightHandPinky1.rotation":{x:0.05,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.1,y:-0.2,z:-0.3},
+      "LeftShoulder.rotation":{x:1.758,y:-0.099,z:-1.604}, "LeftArm.rotation":{x:1.30,y:-0.10,z:0.25},
+      "LeftForeArm.rotation":{x:0.0,y:-0.10,z:1.85}, "LeftHand.rotation":{x:-0.10,y:0.20,z:0.30},
+      "LeftHandIndex1.rotation":{x:0.05,y:0,z:0}, "LeftHandMiddle1.rotation":{x:0.05,y:0,z:0},
+      "LeftHandRing1.rotation":{x:0.05,y:0,z:0}, "LeftHandPinky1.rotation":{x:0.05,y:0,z:0},
+      "LeftHandThumb1.rotation":{x:0.1,y:0.2,z:0.3},
+    };
     (function(){
       const ctl = document.getElementById("ctl");
       const mk = (id,label,fn)=>{ const b=document.createElement("button"); b.id=id; b.textContent=label; b.onclick=fn; ctl.appendChild(b); return b; };
@@ -764,8 +724,9 @@
       mk("oransb",   "orans",     ()=> playWide("orans", 6));
       mk("epib",     "epiclesis", ()=> playWide("epiclesis", 6));
       mk("crossb",   "sign",      ()=> playSignOfCross());
-      mk("sealb2",   "seal",      ()=> window.pressSeal());
-      mk("shredb",   "shred",     ()=> window.shred());
+      mk("breastb",  "strike",    ()=> playStrikeBreast());                              // NEW: Confiteor triple-tap
+      mk("misb",     "misereatur",()=> head.playGesture("misereatur", 6, false, 900));  // NEW: joined prayer hands
+      mk("recvb",    "receive",   ()=> head.playGesture("receive",    6, false, 900));  // NEW: arms crossed
     })();
 
     /* ===================== verdict-rite (orchestration) ===================== */
@@ -787,7 +748,6 @@
             await sleep(430);
           }
           head.playGesture("absolve", 4, false, 700);
-          if(window.pressSeal) window.pressSeal();
           await sleep(3600);
         } finally {
           LV.bpm = sB; LV.beatDepth = sD;
@@ -798,22 +758,78 @@
       const ctl = document.getElementById("ctl");
       const mkBtn = (label, fn)=>{ const b=document.createElement("button"); b.textContent=label; b.onclick=fn; ctl.appendChild(b); return b; };
       mkBtn("rite", ()=>runVerdictRite());
-      let weighTimer = null, weighFlip = false;
-      mkBtn("weigh-toggle", function(){
-        if(weighTimer){ clearInterval(weighTimer); weighTimer=null; return; }
-        weighFlip = false;
+      let weighTimer = null;
+      mkBtn("weigh", function(){
+        if(weighTimer) return;                  // already swinging — ignore re-click
+        let n = 0; const passes = 5;            // a few swings of the scales, then settle back to idle
         head.playGesture("weighA", 1.2, false, 600);
-        weighTimer = setInterval(()=>{ weighFlip=!weighFlip; head.playGesture(weighFlip?"weighB":"weighA", 1.2, false, 600); }, 1200);
+        weighTimer = setInterval(()=>{
+          if(++n >= passes){ clearInterval(weighTimer); weighTimer = null; return; }
+          head.playGesture(n % 2 ? "weighB" : "weighA", 1.2, false, 600);
+        }, 1200);
       });
     })();
     /* =================== end verdict-rite (orchestration) =================== */
+
+    /* ===================== gesture tuner (dev UI): live sliders for pose bones ===================== */
+    (function(){
+      const EDITABLE = ["strikeBreast","strikeBreastLift","misereatur","receive",
+                        "bless","blessLatin","presentHeart","absolve","speak","orans","epiclesis","weighA","weighB"];
+      const BONES = ["RightArm.rotation","RightForeArm.rotation","RightHand.rotation","Neck.rotation","Head.rotation"];
+      const AXES = ["x","y","z"];
+      const panel = document.createElement("div");
+      panel.id = "tune";
+      panel.innerHTML =
+        '<div class="tune-row tune-head"><select id="tune-sel"></select>'
+        + '<button id="tune-play">▶ play</button>'
+        + '<label><input type="checkbox" id="tune-mirror" checked>mirror&nbsp;L</label></div>'
+        + '<div id="tune-sliders"></div>'
+        + '<div class="tune-row"><button id="tune-copy">copy values</button><span id="tune-msg"></span></div>';
+      document.body.appendChild(panel);
+      const sel = panel.querySelector("#tune-sel");
+      const slidersEl = panel.querySelector("#tune-sliders");
+      const mirrorEl = panel.querySelector("#tune-mirror");
+      const msg = panel.querySelector("#tune-msg");
+      EDITABLE.forEach(n=>{ if(head.gestureTemplates[n]){ const o=document.createElement("option"); o.value=n; o.textContent=n; sel.appendChild(o); } });
+
+      function applyMirror(name){           // two-hand poses: mirror Right* -> Left* (x same, y & z negated)
+        if(!mirrorEl.checked) return;
+        const t = head.gestureTemplates[name];
+        for(const b in t){ if(b.indexOf("Right")===0){ const lb=b.replace("Right","Left"); if(t[lb]){ t[lb].x=t[b].x; t[lb].y=-t[b].y; t[lb].z=-t[b].z; } } }
+      }
+      function hold(name){ head.playGesture(name, 6, false, 140); }   // re-hold the pose so the change shows live
+      function playFull(name){ if(name==="strikeBreast"||name==="strikeBreastLift") playStrikeBreast(); else head.playGesture(name,6,false,600); }
+      function buildSliders(name){
+        const t = head.gestureTemplates[name]; slidersEl.innerHTML="";
+        BONES.forEach(b=>{ if(!t[b]) return;
+          AXES.forEach(ax=>{
+            const row=document.createElement("div"); row.className="tune-row";
+            const lab=document.createElement("span"); lab.className="tune-lab"; lab.textContent=b.replace(".rotation","")+"."+ax;
+            const rng=document.createElement("input"); rng.type="range"; rng.min="-2.6"; rng.max="2.6"; rng.step="0.02"; rng.value=String(t[b][ax]||0);
+            const num=document.createElement("span"); num.className="tune-num"; num.textContent=(t[b][ax]||0).toFixed(2);
+            rng.oninput=()=>{ const v=parseFloat(rng.value); t[b][ax]=v; num.textContent=v.toFixed(2); applyMirror(name); hold(name); };
+            row.append(lab,rng,num); slidersEl.appendChild(row);
+          });
+        });
+      }
+      sel.onchange=()=>{ buildSliders(sel.value); hold(sel.value); };
+      panel.querySelector("#tune-play").onclick=()=> playFull(sel.value);
+      panel.querySelector("#tune-copy").onclick=()=>{
+        const t=head.gestureTemplates[sel.value];
+        const js='head.gestureTemplates["'+sel.value+'"] = '+JSON.stringify(t,null,2)+';';
+        if(navigator.clipboard) navigator.clipboard.writeText(js);
+        console.log(js); msg.textContent="copied ✓"; setTimeout(()=>{ msg.textContent=""; },1400);
+      };
+      sel.value="strikeBreast"; buildSliders("strikeBreast");
+    })();
+    /* =================== end gesture tuner =================== */
 
     /* ===================== SACRED HEART — baked into the avatar GLB (rides the Spine2 joint) ===================== */
     (function(){
       // The heart is now a node inside the avatar GLB, parented to the Spine2 bone and seated in a chest
       // socket — so it follows every pose/gesture/breath through the rig (no per-frame repositioning needed).
       // This block only (a) pins the framing and (b) drives the furnace glow / heartbeat off the painted texture.
-      window.__cam = { px:0, py:1.66, pz:6.10, tx:0, ty:1.66, tz:0 };   // heart-up framing: bottom edge at the Sacred Heart (y~1.34), top above the halo (y~2.04), centred ~1.66 — pairs with the fov-8 lens above. Locked: gestures play within this frame, no camera zoom.
+      window.__cam = { px:0, py:1.66, pz:7.0, tx:0, ty:1.66, tz:0 };   // heart-up frame at pz 7.0 — matches the production kiosk (index.html). Live-tune via window.__cam.pz.
       if (head.controls) head.controls.enabled = false;
       const EMIS = window.__heartEmis = { base:1.0, beat:1.0, flick:0.12 };
       const mats = window.__heartMats = [];   // baked-heart materials we drive for the heartbeat glow

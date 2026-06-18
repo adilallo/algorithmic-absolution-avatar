@@ -41,15 +41,16 @@
       <option value="en-US-Standard-G">en-US-Standard-G — mature, administrative</option>
       <option value="en-US-Standard-H">en-US-Standard-H — lighter, crisp</option>
     </select>
-    <label for="pitch">Pitch (semitones) <output id="pitch_o">-6.5</output></label>
-    <input id="pitch" type="range" min="-12" max="8" step="0.5" value="-6.5">
-    <label for="rate">Speaking rate <output id="rate_o">0.82</output></label>
-    <input id="rate" type="range" min="0.4" max="1.6" step="0.01" value="0.82">
+    <label for="pitch">Pitch (semitones) <output id="pitch_o">-5</output></label>
+    <input id="pitch" type="range" min="-12" max="8" step="0.5" value="-5">
+    <label for="rate">Speaking rate <output id="rate_o">0.80</output></label>
+    <input id="rate" type="range" min="0.4" max="1.6" step="0.01" value="0.80">
 
     <h2>Effects</h2>
     <label for="preset">Preset <span class="hint">loads a starting point, then tune below</span></label>
     <select id="preset">
-      <option value="absolution" selected>absolution — locked-in production look</option>
+      <option value="clear" selected>clear — shipping voice (near-dry, warm, present)</option>
+      <option value="absolution">absolution — prior look (deep + reverberant)</option>
       <option value="dry">dry — clean baseline (hear the raw voice)</option>
       <option value="chamber">chamber — warmth + short room</option>
       <option value="transmission">transmission — intercom + grit</option>
@@ -81,14 +82,14 @@
 
   <script type="module">
     import { TalkingHead } from "talkinghead";
-    import { installVoiceFX, applyVoiceParams, VOICE_PRESETS } from "./voice-fx.js";
+    import { installVoiceFX, applyVoiceParams, applyTtsParams, VOICE_PRESETS } from "./voice-fx.js";
 
     const $ = (id) => document.getElementById(id);
     const setStatus = (m) => { $("status").textContent = m; };
     const avatarUrl = window.TALKINGHEAD_AVATAR_URL || "docs/base/oracle-icon-heart.glb?v=17";
 
-    // Live FX parameter state — starts on the locked-in "absolution" production look.
-    const P = { ...VOICE_PRESETS.absolution };
+    // Live FX parameter state — starts on the shipping "clear" production voice.
+    const P = { ...VOICE_PRESETS.clear };
 
     // FX sliders, generated from this spec (voice/pitch/rate handled separately above).
     // Ranges are deliberately EXTREME — pull back to taste; production bakes whatever you settle on.
@@ -135,7 +136,7 @@
       try {
         await head.showAvatar({
           url: avatarUrl, body: "F", avatarMood: "neutral",
-          ttsLang: "en-US", ttsVoice: "en-US-Standard-C", ttsPitch: -6.5, ttsRate: 0.82, lipsyncLang: "en",
+          ttsLang: "en-US", ttsVoice: VOICE_PRESETS.clear.ttsVoice, ttsPitch: VOICE_PRESETS.clear.ttsPitch, ttsRate: VOICE_PRESETS.clear.ttsRate, lipsyncLang: "en",
         }, (ev) => { if (ev.lengthComputable) setStatus(`Loading ${Math.round(ev.loaded / ev.total * 100)}%`); });
         installVoiceFX(head); applyVoiceParams(head, P);
         syncSliders(); refreshDump();
@@ -148,7 +149,17 @@
     $("pitch").oninput = (e) => { $("pitch_o").value = e.target.value; refreshDump(); };
     $("rate").oninput  = (e) => { $("rate_o").value  = e.target.value; refreshDump(); };
     $("voice").onchange = refreshDump;
-    $("preset").onchange = (e) => { Object.assign(P, VOICE_PRESETS[e.target.value]); applyVoiceParams(head, P); syncSliders(); refreshDump(); };
+    $("preset").onchange = (e) => {
+      const pr = VOICE_PRESETS[e.target.value];
+      Object.assign(P, pr); applyVoiceParams(head, P);
+      // A preset may carry pitch/rate/voice (clear does) — reflect them on the sliders + avatar so the
+      // dropdown reproduces the full sound. FX-only presets omit these and leave pitch/rate untouched.
+      if (pr.ttsVoice != null) $("voice").value = pr.ttsVoice;
+      if (pr.ttsPitch != null) { $("pitch").value = pr.ttsPitch; $("pitch_o").value = pr.ttsPitch; }
+      if (pr.ttsRate  != null) { $("rate").value  = pr.ttsRate;  $("rate_o").value  = pr.ttsRate; }
+      applyTtsParams(head, pr);
+      syncSliders(); refreshDump();
+    };
 
     $("speak").onclick = async () => {
       const t = $("text").value.trim(); if (!t) return;
