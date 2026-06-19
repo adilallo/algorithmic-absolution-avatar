@@ -1209,15 +1209,15 @@
         on: true,
         face: { px:0, py:1.74, pz:1.72, tx:0, ty:1.74, tz:0, fov:10 },  // resting: tight, centred face (neck cropped)
         wide: { px:0, py:1.62, pz:3.8,  tx:0, ty:1.60, tz:0, fov:15 },  // gesture: head + halo + chest, cropped ~navel
-        outMs: 950, inMs: 1200, hold: 350,
+        outMs: 2400, inMs: 3000, hold: 350,   // much slower, cinematic zoom out/in
       };
       const LIGHTSWELL = window.LIGHTSWELL = {
         on: true,
         close: { godExp:0.040, godWt:0.16, godGate:0.85, emis:0.27, bloomS:0.22 },  // = the baked GOD/BLOOM/emissive defaults
-        swell: { godExp:0.080, godWt:0.23, godGate:0.72, emis:0.34, bloomS:0.26 },  // more god-ray + glow when wide
+        swell: { godExp:0.080, godWt:0.23, godGate:0.72, emis:0.30, bloomS:0.26 },  // more god-ray when wide; skin emission only a touch above close (0.27)
       };
       const lerp = (a,b,t)=> a+(b-a)*t;
-      const ease = (t)=> t<0.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
+      const ease = (t)=> t*t*t*(t*(t*6-15)+10);   // smootherstep (quintic): zero velocity AND accel at both ends — extra-smooth
       const setEmis = (v)=> scene.traverse(o=>{ if(o.isMesh&&o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{ if(m&&m.name==="OracleSkin"){ m.emissiveIntensity=v; m.needsUpdate=true; } }); } });
       const getEmis = ()=>{ let v=LIGHTSWELL.close.emis; scene.traverse(o=>{ if(o.isMesh&&o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{ if(m&&m.name==="OracleSkin") v=m.emissiveIntensity; }); } }); return v; };
       let camRAF=null, lightRAF=null;

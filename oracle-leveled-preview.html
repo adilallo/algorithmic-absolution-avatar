@@ -937,10 +937,10 @@
         on: true,
         face: { px:0, py:1.74, pz:1.72, tx:0, ty:1.74, tz:0, fov:10 },  // tight + raised + closer: face fills, chin near bottom, neck cropped
         wide: { px:0, py:1.62, pz:3.8,  tx:0, ty:1.60, tz:0, fov:15 },  // medium + raised: head + halo + chest + gesture, cropped ~navel (less lower body)
-        outMs: 950, inMs: 1200, hold: 350,   // slow ease-out, slower ease-in, extra hold after the gesture's duration
+        outMs: 2400, inMs: 3000, hold: 350,   // much slower, cinematic zoom out/in; extra hold after the gesture's duration
       };
       const lerp = (a,b,t)=> a+(b-a)*t;
-      const ease = (t)=> t<0.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;   // ease-in-out — gentle accel/decel
+      const ease = (t)=> t*t*t*(t*(t*6-15)+10);   // smootherstep (quintic): zero velocity AND accel at both ends — extra-smooth
       let camRAF = null;
       function tweenCam(to, ms){
         if(camRAF) cancelAnimationFrame(camRAF);
@@ -960,7 +960,7 @@
       const LIGHTSWELL = window.LIGHTSWELL = {
         on: true,
         close: { godExp:0.040, godWt:0.16, godGate:0.85, emis:0.27, bloomS:0.22 },  // production default (close-up) — keep in sync with the baked GOD/BLOOM/emissive
-        swell: { godExp:0.080, godWt:0.23, godGate:0.72, emis:0.34, bloomS:0.26 },  // more god-ray + glow when wide (figure still reads)
+        swell: { godExp:0.080, godWt:0.23, godGate:0.72, emis:0.30, bloomS:0.26 },  // more god-ray when wide; skin emission only a touch above close (0.27)
       };
       const setEmis = (v)=> scene.traverse(o=>{ if(o.isMesh&&o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{ if(m&&m.name==="OracleSkin"){ m.emissiveIntensity=v; m.needsUpdate=true; } }); } });
       const getEmis = ()=>{ let v=LIGHTSWELL.close.emis; scene.traverse(o=>{ if(o.isMesh&&o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{ if(m&&m.name==="OracleSkin") v=m.emissiveIntensity; }); } }); return v; };
