@@ -3,108 +3,47 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>TalkingHead</title>
+<title>Oracle · light studio</title>
 <style>
-  html, body {
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    overflow: hidden;
-    background: #202020;
-    color: #fff;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-  }
-  body {
-    display: flex;
-    flex-direction: column;
-    max-width: 900px;
-    margin: 0 auto;
-    position: relative;
-  }
-  body.production {
-    max-width: none;
-    margin: 0;
-    cursor: none;
-  }
-  #avatar {
-    flex: 1;
-    width: 100%;
-    min-height: 0;
-  }
-  #status {
-    position: absolute;
-    top: 12px;
-    left: 12px;
-    right: 12px;
-    padding: 10px 12px;
-    background: rgba(0, 0, 0, 0.55);
-    border-radius: 6px;
-    font-size: 14px;
-    pointer-events: none;
-  }
-  #status.hidden { display: none; }
-  #status.error { background: rgba(140, 30, 30, 0.85); }
-
-  /* Dev harm-picker (ALG-14): pick categories -> requestAbsolution -> avatar + LLM respond. */
-  #harm-panel {
-    padding: 8px 10px;
-    background: #141414;
-    border-top: 1px solid #2a2a2a;
-  }
-  body.production #harm-panel { display: none; }
-  body.production #status { display: none; }   /* production = avatar view only, no UI/overlays */
-  /* Showcase two-window demo: one tap on the oracle unlocks Web Audio (clicks on the form don't). */
-  #showcase-audio-prompt {
-    position: fixed; inset: 0; z-index: 10; pointer-events: none;
-    display: flex; align-items: flex-end; justify-content: center;
-    padding-bottom: 40px; font-size: 12px; letter-spacing: 0.06em;
-    color: rgba(255,255,255,0.38); text-transform: uppercase;
-  }
-  #harm-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 6px;
-    margin-bottom: 7px;
-  }
-  #harm-list label {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 3px 8px;
-    font-size: 11px;
-    border: 1px solid #333;
-    border-radius: 5px;
-    background: #111;
-    cursor: pointer;
-    user-select: none;
-  }
-  #harm-list label:hover { border-color: #2f7cff; }
-  #harm-list input { accent-color: #2f7cff; margin: 0; }
-  #harm-actions { display: flex; gap: 8px; align-items: center; }
-  #harm-panel button {
-    padding: 6px 12px;
-    font-size: 13px;
-    border: 0;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  #harm-clear { background: #333; color: #fff; }
-  #harm-send { background: #2f7cff; color: #fff; }
-  #harm-send:disabled { background: #444; cursor: not-allowed; }
+  html, body { width:100%; height:100%; margin:0; background:#000; overflow:hidden; }
+  #avatar { position:fixed; inset:0; width:100%; height:100%; }
+  #hud { position:fixed; left:10px; bottom:10px; z-index:10;
+    font:12px ui-monospace, Menlo, monospace; color:#d8c08a;
+    background:rgba(0,0,0,.45); padding:6px 8px; border-radius:6px; pointer-events:none; white-space:pre; }
+  #ctl { position:fixed; right:10px; bottom:10px; z-index:10; display:flex; flex-wrap:wrap; justify-content:flex-end; max-width:80vw; gap:6px; }
+  #ctl button { font:12px ui-monospace, Menlo, monospace; color:#1a120a; background:#d8c08a; border:0; padding:8px 12px; border-radius:6px; cursor:pointer; }
+  #ctl button:disabled { opacity:.5; }
+  #tune { position:fixed; right:10px; top:10px; z-index:20; width:300px; max-height:90vh; overflow:auto;
+    font:11px ui-monospace, Menlo, monospace; color:#e8d6a0; background:rgba(0,0,0,.66);
+    padding:8px; border-radius:8px; border:1px solid rgba(216,192,138,.25); }
+  #tune .tune-row { display:flex; align-items:center; gap:6px; margin:3px 0; }
+  #tune .tune-head { margin-bottom:6px; }
+  #tune select, #tune button { font:11px ui-monospace,Menlo,monospace; color:#1a120a; background:#d8c08a; border:0; border-radius:5px; padding:4px 6px; cursor:pointer; }
+  #tune label { display:flex; align-items:center; gap:3px; color:#c8b888; }
+  #tune .tune-lab { width:120px; flex:0 0 auto; color:#c8b888; }
+  #tune .tune-num { width:40px; text-align:right; flex:0 0 auto; }
+  #tune input[type=range] { flex:1 1 auto; min-width:50px; accent-color:#d8c08a; }
+  /* ---- LIGHT STUDIO panel (left) ---- */
+  #light { position:fixed; left:10px; top:10px; z-index:20; width:252px; max-height:94vh; overflow:auto;
+    font:11px ui-monospace, Menlo, monospace; color:#e8d6a0; background:rgba(0,0,0,.72);
+    padding:8px 10px; border-radius:8px; border:1px solid rgba(216,192,138,.25); }
+  #light .ls-h1 { font-size:12px; letter-spacing:.12em; color:#d8c08a; margin-bottom:4px; }
+  #light .ls-sub { font-size:9px; color:#8a7c58; margin-bottom:6px; }
+  #light .ls-h2 { font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:#8a7c58; margin:10px 0 2px; border-top:1px solid #241d14; padding-top:6px; }
+  #light .tune-row { display:flex; align-items:center; gap:6px; margin:3px 0; }
+  #light .tune-lab { width:92px; flex:0 0 auto; color:#c8b888; }
+  #light .tune-num { width:38px; text-align:right; flex:0 0 auto; color:#e8dcc0; }
+  #light input[type=range] { flex:1 1 auto; min-width:44px; accent-color:#d8c08a; }
+  #light input[type=color] { width:48px; height:22px; padding:0; border:1px solid #3a3020; background:none; border-radius:4px; cursor:pointer; }
+  #light button { font:11px ui-monospace,Menlo,monospace; color:#1a120a; background:#d8c08a; border:0; border-radius:5px; padding:5px 9px; cursor:pointer; }
+  #light .ls-msg { color:#9ec89e; }
+  #light #ls-dump { white-space:pre-wrap; word-break:break-word; background:#0a0805; color:#9ec89e;
+    border:1px solid #241d14; border-radius:5px; padding:6px; margin-top:6px; font-size:10px; line-height:1.4; }
 </style>
 </head>
 <body>
   <div id="avatar"></div>
-  <div id="status">Loading...</div>
-  <div id="harm-panel">
-    <div id="harm-list"></div>
-    <div id="harm-actions">
-      <button id="harm-send" type="button" disabled>Submit</button>
-      <button id="harm-clear" type="button">Clear</button>
-    </div>
-  </div>
-
-  <script src="./config.js" onerror="window.__TH_NO_CONFIG = true"></script>
+  <div id="hud">oracle · light studio · loading…</div>
 
   <script type="importmap">
   {
@@ -119,71 +58,15 @@
   <script type="module">
     import { TalkingHead } from "talkinghead";
     import * as THREE from "three";
-    import { EffectComposer }  from "three/addons/postprocessing/EffectComposer.js";
-    import { RenderPass }      from "three/addons/postprocessing/RenderPass.js";
-    import { ShaderPass }      from "three/addons/postprocessing/ShaderPass.js";
+    import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+    import { RenderPass }    from "three/addons/postprocessing/RenderPass.js";
+    import { ShaderPass }    from "three/addons/postprocessing/ShaderPass.js";
+    import { OutputPass }    from "three/addons/postprocessing/OutputPass.js";
     import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-    import { OutputPass }      from "three/addons/postprocessing/OutputPass.js";
-    import { installVoiceFX, applyVoiceParams, applyTtsParams, VOICE_PRESETS } from "./voice-fx.js";
+    import { GLTFLoader }    from "three/addons/loaders/GLTFLoader.js";
 
-    const isProduction =
-      window.TALKINGHEAD_PRODUCTION === true ||
-      new URLSearchParams(location.search).has("production");
-    const isShowcase = new URLSearchParams(location.search).has("showcase");
-
-    if (isProduction) {
-      document.body.classList.add("production");
-    }
-
-    const statusEl = document.getElementById("status");
+    const hud = document.getElementById("hud");
     const avatarEl = document.getElementById("avatar");
-
-    function showStatus(msg, isError = false) {
-      statusEl.textContent = msg;
-      statusEl.classList.remove("hidden");
-      statusEl.classList.toggle("error", isError);
-    }
-    function hideStatus() {
-      statusEl.classList.add("hidden");
-    }
-
-    function scheduleRecovery(reason) {
-      console.error("[avatar] fatal error, reloading in 3s:", reason);
-      setTimeout(() => location.reload(), 3000);
-    }
-
-    function handleFatalError(reason) {
-      if (isProduction) {
-        scheduleRecovery(reason);
-      } else {
-        showStatus(String(reason), true);
-      }
-    }
-
-    if (isProduction) {
-      document.addEventListener("contextmenu", (ev) => ev.preventDefault());
-      document.addEventListener("keydown", (ev) => {
-        const key = ev.key;
-        if (
-          key === "F5" ||
-          key === "F11" ||
-          key === "F12" ||
-          (ev.ctrlKey && (key === "r" || key === "R")) ||
-          (ev.ctrlKey && ev.shiftKey && (key === "i" || key === "I" || key === "j" || key === "J")) ||
-          (ev.metaKey && (key === "r" || key === "R")) ||
-          (ev.metaKey && ev.altKey && (key === "i" || key === "I"))
-        ) {
-          ev.preventDefault();
-        }
-      });
-    }
-
-    // TTS goes through a same-origin server-side proxy (ALG-8): the Google API key lives only in
-    // deploy/tts-proxy/.env, never in client source or the network tab. No client key is required.
-    // The proxy also serves these static files, so "/tts" resolves on the page's own origin.
-    const ttsProxy = window.TALKINGHEAD_TTS_PROXY || "/tts";
-
-    // --- Leveled-oracle render-layer tunables (ported from oracle-leveled-preview.html) ---
     const TAU = Math.PI*2, fract = x => x - Math.floor(x);
 
     const ICON = window.ICON = {
@@ -225,238 +108,24 @@
       eyeAmt:0.0, eyeN:14.0, eyeRadius:0.225, eyeScale:0.026,   // ophanim eye-ring removed (set eyeAmt>0 to bring it back)
     };
 
-    // --- Hieratic idle ---------------------------------------------------------------------------------------
-    // Replaces TalkingHead's default idle (it cycles the figure through casual weight-shift stances:
-    // side/hip/wide — relaxed, human, anti-iconic — and its breathing is a no-op because this GLB has no
-    // chestInhale morph). Instead we lock a frontal, symmetric "oracle" standing pose and layer subtle life
-    // (slow breath + barely-there sway) onto the Mixamo spine/axial bones every frame — the same rig the
-    // gestures drive. Everything here is live-tunable on window.IDLE.
-    const IDLE = window.IDLE = {
-      on:1,
-      breathBpm:11.0,                                              // slow, meditative breaths per minute
-      breathSpine1:0.034, breathSpine2:0.026, breathNeck:0.012, breathHead:0.010,  // chest-expansion amplitudes (rad)
-      swayPeriod:26.0,                                             // seconds for one lateral sway cycle
-      swayLean:0.013, swayTurn:0.010, swayHead:0.011,              // spine lean / hip turn / head drift (rad)
-    };
-    const __idleQ = new THREE.Quaternion();
-    const __axX = new THREE.Vector3(1,0,0), __axY = new THREE.Vector3(0,1,0), __axZ = new THREE.Vector3(0,0,1);
-
     const head = new TalkingHead(avatarEl, {
-      // Same-origin proxy that injects the Google key server-side and forwards to
-      // v1beta1/text:synthesize. ttsApikey is intentionally omitted so TalkingHead appends no ?key=.
-      ttsEndpoint: ttsProxy,
-      lipsyncModules: ["en"],
-      cameraView: "head",
-      lightAmbientColor: 0xfff1dc, lightAmbientIntensity: 0.42,
-      lightDirectColor: 0xffe9c8, lightDirectIntensity: 0.62,
-      lightDirectPhi: 0.6, lightDirectTheta: 0.2, lightSpotIntensity: 0,
+      ttsEndpoint:"none", lipsyncModules:[], cameraView:"head",
+      lightAmbientColor:0xfff1dc, lightAmbientIntensity:0.42,
+      lightDirectColor:0xffe9c8, lightDirectIntensity:0.62,
+      lightDirectPhi:0.6, lightDirectTheta:0.2, lightSpotIntensity:0,
     });
 
-    const avatarUrl = window.TALKINGHEAD_AVATAR_URL || "./avatar.glb";
+    const avatarUrl = new URLSearchParams(location.search).get("url") || "docs/base/oracle-icon-heart.glb?v=19";
+    await head.showAvatar({ url:avatarUrl, body:"F", avatarMood:"neutral", lipsyncLang:"en",
+        avatarIdleEyeContact:0.98, avatarIdleHeadMove:0.015,
+        avatarSpeakingEyeContact:0.98, avatarSpeakingHeadMove:0.06 },
+      (ev)=>{ if(ev.lengthComputable) hud.textContent = "loading "+Math.round(ev.loaded/ev.total*100)+"%"; });
 
-    // Showcase: speech must wait for a user gesture IN THIS WINDOW (form clicks don't count).
-    let __audioReadyResolve;
-    const __audioReady = isShowcase
-      ? new Promise((resolve) => { __audioReadyResolve = resolve; })
-      : Promise.resolve();
-
-    async function ensureAudioUnlocked() {
-      if (!head.armature) return false;
-      if (!head.isRunning) head.start();
-      const ctx = head.audioCtx;
-      if (!ctx) return false;
-      if (ctx.state === "running") return true;
-      if (ctx.state !== "suspended" && ctx.state !== "interrupted") return false;
-      const resume = ctx.resume();
-      const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("audio resume timeout")), 1000));
-      try {
-        await Promise.race([resume, timeout]);
-        return ctx.state === "running";
-      } catch (e) {
-        console.warn("[avatar] audio unlock failed:", e.message || e);
-        return false;
-      }
-    }
-
-    function setupShowcaseAudioUnlock() {
-      if (!isShowcase) return;
-      const prompt = document.createElement("div");
-      prompt.id = "showcase-audio-prompt";
-      prompt.textContent = "Tap once to enable audio";
-      document.body.appendChild(prompt);
-      const unlock = async () => {
-        prompt.remove();
-        if (await ensureAudioUnlocked()) __audioReadyResolve();
-      };
-      document.addEventListener("pointerdown", unlock, { once: true });
-      // If Chrome was launched with --autoplay-policy, unlock without a tap.
-      void ensureAudioUnlocked().then((ok) => { if (ok) { prompt.remove(); __audioReadyResolve(); } });
-    }
-
-    try {
-      const headCheck = await fetch(avatarUrl, { method: "HEAD" });
-      if (!headCheck.ok) {
-        throw new Error(`HTTP ${headCheck.status} for ${avatarUrl}`);
-      }
-    } catch (err) {
-      console.error(err);
-      handleFatalError(
-        isProduction
-          ? err
-          : "Avatar GLB not found at ./avatar.glb. Drop a Ready Player Me / TalkingHead-compatible GLB (ARKit + Oculus visemes) into this folder as avatar.glb, or set window.TALKINGHEAD_AVATAR_URL in config.js."
-      );
-      throw err;
-    }
-
-    try {
-      await head.showAvatar(
-        {
-          url: avatarUrl, body: "F", avatarMood: "neutral",
-          // Absolution voice: FREE-tier en-US female (Standard — stays in Google's free allotment),
-          // pitched DOWN server-side (Google does the semitone shift — no Pi cost) + a measured rate.
-          // Pitch/rate/voice are sourced from the SHIPPING `clear` preset in voice-fx.js (single source
-          // of truth); the FX chain for it is applied via voiceParams below. Keep avatarMood "neutral"
-          // (its speech deltas are 0) so these pass through clean; never set animSlowdownRate (that
-          // would double-shift pitch+tempo client-side). Tune via oracle-voice-audition.html.
-          ttsLang: "en-US",
-          ttsVoice: VOICE_PRESETS.clear.ttsVoice, ttsPitch: VOICE_PRESETS.clear.ttsPitch, ttsRate: VOICE_PRESETS.clear.ttsRate,
-          lipsyncLang: "en",
-          // Calm, gaze-locked hieratic idle (matches the preview).
-          avatarIdleEyeContact: 0.98, avatarIdleHeadMove: 0.015,
-          avatarSpeakingEyeContact: 0.98, avatarSpeakingHeadMove: 0.06,
-        },
-        (ev) => {
-          if (ev.lengthComputable) {
-            const pct = Math.min(100, Math.round((ev.loaded / ev.total) * 100));
-            showStatus(`Loading ${pct}%`);
-          }
-        }
-      );
-      hideStatus();
-      setupShowcaseAudioUnlock();
-
-      // Speech is the production contract; wire it before the cosmetic render layer.
-      window.avatarSpeak = async (text) => {
-        const t = String(text ?? "").trim();
-        if (!t) return;
-        try {
-          await __audioReady;
-          await ensureAudioUnlocked();
-          ensureVoiceFX();
-          head.speakText(t);
-        }
-        catch (err) {
-          console.error("[avatar] speak failed:", err);
-          if (!isProduction) showStatus(`Speak failed: ${err}`, true);
-        }
-      };
-      if (!isProduction) { window.__head = head; }
-
-      // ALG-15: punch-card category totals -> absolution text -> speech. This is the callable
-      // seam for the sensor/orchestrator (wired in ALG-13). POSTs the totals to the same-origin
-      // /absolution service (the Magisterium key lives only server-side in deploy/tts-proxy/.env),
-      // then speaks the returned text. If the service is unreachable we still speak a client-side
-      // canned line, so even a dead proxy never leaves a visitor with silence.
-      const absolutionEndpoint = window.ABSOLUTION_ENDPOINT || "/absolution";
-      const CLIENT_FALLBACK_ABSOLUTION =
-        "Your declaration has been received. The harm you have named is acknowledged. No record is kept.";
-
-      // Category id->label, fetched once, used to read the declared harms back aloud.
-      let __absCats = null;
-      async function absCategories() {
-        if (__absCats) return __absCats;
-        try { const r = await fetch(absolutionEndpoint + "/categories"); if (r.ok) __absCats = (await r.json()).categories || []; }
-        catch (e) { /* read-back is best-effort */ }
-        return __absCats || [];
-      }
-      const speakList = (a) =>
-        a.length <= 1 ? a.join("") : a.length === 2 ? a[0] + " and " + a[1]
-          : a.slice(0, -1).join(", ") + ", and " + a[a.length - 1];
-      // Best-effort: which declared harms to read back, from punched ids / 1-based indices / labels.
-      function declaredLabels(totals, cats) {
-        const raw = Array.isArray(totals) ? totals
-          : (totals && (totals.punched || totals.categories || totals.selections)) || [];
-        const arr = Array.isArray(raw) ? raw : [];
-        const ids = new Set();
-        for (let t of arr) {
-          if (t && typeof t === "object") t = t.id ?? t.label ?? t.name ?? t.index;
-          if (t == null) continue;
-          const s = String(t).trim();
-          let c = null;
-          if (/^\d+$/.test(s)) c = cats[parseInt(s, 10) - 1];
-          else {
-            const n = s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-            c = cats.find((x) => x.id === s || x.id.replace(/_/g, " ") === n || x.label.toLowerCase() === s.toLowerCase());
-          }
-          if (c) ids.add(c.id);
-        }
-        return cats.filter((c) => ids.has(c.id)).map((c) => c.label);
-      }
-
-      window.requestAbsolution = async (categoryTotals) => {
-        // Read the declared harms back + a holding line, spoken immediately, to fill the LLM wait
-        // (Magisterium can take ~25 s). speakText queues, so the response plays after this preamble.
-        try {
-          const labels = declaredLabels(categoryTotals, await absCategories()).map((l) => l.toLowerCase());
-          const readback = labels.length
-            ? "You have declared the following. " + speakList(labels) + "."
-            : "You have declared no category of harm.";
-          window.playOpeningGesture?.();   // varied opening gesture, synced to the read-back utterance
-          window.avatarSpeak("Your card has been received and is being processed. " + readback);
-        } catch (e) { /* preamble is best-effort */ }
-
-        let text = "", source = "fallback";
-        try {
-          const r = await fetch(absolutionEndpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(categoryTotals || {}),
-          });
-          if (r.ok) {
-            const d = await r.json();
-            if (d && typeof d.text === "string" && d.text.trim()) { text = d.text.trim(); source = d.source || "magisterium"; }
-          } else {
-            console.warn("[absolution] service returned", r.status, "- using client fallback");
-          }
-        } catch (err) {
-          console.warn("[absolution] request failed, using client fallback:", err);
-        }
-        if (!text) text = CLIENT_FALLBACK_ABSOLUTION;
-        window.playAbsolveGesture?.();   // always close on the hand of pardon, synced to the absolution
-        window.avatarSpeak(text);
-        return { text, source };
-      };
-
-      // ---- Absolution voice effects (ALG-9): shared chain from voice-fx.js, spliced into
-      // TalkingHead's audio graph (audio thread, off the 60fps GPU budget). Re-installed idempotently
-      // because TalkingHead can rebuild its graph and does not persist reverb. Default preset is the
-      // shipping "clear" voice; switch live in dev with
-      // window.ORACLE_VOICE("clear"|"absolution"|"dry"|"chamber"|"transmission"|"oracle").
-      const voiceParams = { ...(VOICE_PRESETS[window.ORACLE_VOICE_PRESET] || VOICE_PRESETS.clear) };
-      function ensureVoiceFX() {
-        const fx = installVoiceFX(head);
-        if (fx && !fx.__applied) { applyVoiceParams(head, voiceParams); fx.__applied = true; }
-      }
-      window.ORACLE_VOICE = (name) => {
-        if (!VOICE_PRESETS[name]) { console.warn("[avatar] presets:", Object.keys(VOICE_PRESETS).join(", ")); return; }
-        window.ORACLE_VOICE_PRESET = name;
-        Object.assign(voiceParams, VOICE_PRESETS[name]);
-        if (installVoiceFX(head)) applyVoiceParams(head, voiceParams);
-        applyTtsParams(head, VOICE_PRESETS[name]); // apply bundled pitch/rate/voice (clear carries them)
-      };
-      // Optional fine-tune from the console (e.g. window.ORACLE_VOICE_SET({ revAmt: 0.5 })).
-      window.ORACLE_VOICE_SET = (patch) => { Object.assign(voiceParams, patch); applyVoiceParams(head, voiceParams); };
-      ensureVoiceFX(); // install now so the default preset is live before the first utterance
-
-      // The full leveled-preview look. Isolated try/catch: a render-layer failure
-      // degrades to the raw avatar with working speech rather than a black screen.
-      try {
-
-      // ===== ported render layer =====
+    window.head = head;  // dev: expose for live console tuning, e.g. head.gestureTemplates.strikeBreast["RightForeArm.rotation"].z = -1.6; head.playGesture("strikeBreast",4,false,450)
     const scene = head.scene, camera = head.camera, renderer = head.renderer;
     renderer.toneMapping = THREE.NoToneMapping;
     scene.background = new THREE.Color(ICON.groundR, ICON.groundG, ICON.groundB);
-    camera.fov = 8; camera.position.set(0,1.66,7.0); camera.updateProjectionMatrix();   // pz 7.0 (was 6.10): the gesture-tuning frame, so raised/two-hand gestures (orans, misereatur, strikeBreast) stay in view
+    camera.fov = 9; camera.position.set(0,1.58,6.2); camera.updateProjectionMatrix();  // fov-9 portrait frame — matches the production kiosk (index.html applyPortraitFraming)
     if (head.controls){ head.controls.target.set(0,1.66,0); head.controls.update(); }
 
     // Materials (unchanged icon grade)
@@ -492,7 +161,8 @@
     //   KEY  warm, front-above    -> models the face (brow/nose/lip shadows) so the mouth reads while speaking
     //   FILL cool, front-opposite -> soft warm/cool dimensionality without flattening the form
     //   RIM  warm, behind+above   -> luminous halo-edge backlight (the ethereal "god-light"), feeds the halo bloom
-    // All aimed at a shared target at the upper chest. Live-tunable via window.LIGHT then re-call applyLights(). ---
+    // All aimed at a shared target at the upper chest. Tunable live via the LIGHT STUDIO panel (mutates window.LIGHT
+    // then re-calls applyLights()). Keep this block identical to index.html's. ---
     const LIGHT = window.LIGHT = {
       amb:0.18, ambHex:0xfff1dc,
       keyI:1.05, keyHex:0xffe7c8, keyPos:[0.5,2.9,2.8],
@@ -782,8 +452,7 @@
 
     // ---- GODRAYS: volumetric light scattering for a holy backdrop (radial blur of the bright halo disc) ----
     // Origin = the halo disc behind the head now that the heart is gone (godLoop falls back to Aura_Disc). Kept
-    // SUBTLE — low exposure/weight + high gateLo — so the halo throws gentle radiant shafts without washing the
-    // face (the heart used to sit lower at the chest; behind the head a strong scatter erased the features).
+    // SUBTLE — low exposure/weight + high gateLo — so the halo throws gentle radiant shafts without washing the face.
     const GOD = window.GOD = { on:1, exposure:0.040, decay:0.95, density:0.50, weight:0.16, gateLo:0.85 };
     const GODRAYS = {
       uniforms:{ tDiffuse:{value:null}, lightPos:{value:new THREE.Vector2(0.5,0.46)},
@@ -823,25 +492,7 @@
     })();
     function sizeAll(){ const wd=avatarEl.clientWidth, ht=avatarEl.clientHeight;
       composer.setSize(wd,ht); gradePass.uniforms.res.value.set(wd,ht);
-      bloomPass.setSize(Math.max(1,wd>>1), Math.max(1,ht>>1)); applyPortraitFraming(); }
-    function applyPortraitFraming(){
-      if (!isProduction) return;
-      const w = avatarEl.clientWidth, h = avatarEl.clientHeight;
-      if (!w || !h) return;
-      const portrait = h > w || new URLSearchParams(location.search).has("portrait");
-      if (portrait) {
-        // Torso crop: navel (~y 1.01) through halo disc top (~y 2.05). Telephoto + closer than landscape.
-        const ty = 1.58;
-        camera.fov = 9.0; camera.position.set(0, ty, 6.2); camera.lookAt(0, ty, 0);
-        window.__cam = { px:0, py:ty, pz:6.2, tx:0, ty, tz:0 };
-        window.__restFov = 9.0;
-      } else {
-        camera.fov = 8; camera.position.set(0, 1.66, 7.0); camera.lookAt(0, 1.66, 0);
-        window.__cam = { px:0, py:1.66, pz:7.0, tx:0, ty:1.66, tz:0 };
-        window.__restFov = 8;
-      }
-      camera.updateProjectionMatrix();
-    }
+      bloomPass.setSize(Math.max(1,wd>>1), Math.max(1,ht>>1)); }
     sizeAll(); window.addEventListener("resize", sizeAll);
 
     head.render = function(){
@@ -875,26 +526,10 @@
       u.beat.value = Math.min(1.0, (s1 + (ph<0.34?s2:0.0))) * LV.beatDepth;
       // pin a stable head+chest frame each render (TalkingHead keeps recentring on the head bone)
       if (window.__cam){ const C=window.__cam; camera.position.set(C.px,C.py,C.pz); camera.lookAt(C.tx,C.ty,C.tz); }
-      // ---- Hieratic idle: slow breath + micro-sway, applied as the last word before the draw (rig-space deltas).
-      // The engine wrote absolute pose quaternions for this frame already; we post-multiply tiny offsets that
-      // reset cleanly next frame (no accumulation). Breath touches only the spine/neck/head — orthogonal to the
-      // arm-driven gestures, so a blessing still reads. The renderer's matrixWorld pass propagates this to the
-      // skin and to the Spine2-socketed Sacred Heart in the same frame.
-      if (IDLE.on && window.__idleBones){
-        const B = window.__idleBones;
-        const br    = Math.sin(t * (IDLE.breathBpm/60) * TAU);        // breath phase -1..1
-        const sway  = Math.sin(t * TAU / IDLE.swayPeriod);            // slow lateral
-        const sway2 = Math.sin(t * TAU / (IDLE.swayPeriod*1.6) + 1.1);// decorrelated drift
-        if (B.Spine1) B.Spine1.quaternion.multiply(__idleQ.setFromAxisAngle(__axX, -IDLE.breathSpine1*br)); // chest opens on inhale
-        if (B.Spine2) B.Spine2.quaternion.multiply(__idleQ.setFromAxisAngle(__axX, -IDLE.breathSpine2*br));
-        if (B.Neck)   B.Neck.quaternion.multiply(  __idleQ.setFromAxisAngle(__axX,  IDLE.breathNeck*br));   // counter-nod holds the gaze level
-        if (B.Head)   B.Head.quaternion.multiply(  __idleQ.setFromAxisAngle(__axX,  IDLE.breathHead*br));
-        if (B.Spine)  B.Spine.quaternion.multiply( __idleQ.setFromAxisAngle(__axZ,  IDLE.swayLean*sway));   // barely-there living sway
-        if (B.Hips)   B.Hips.quaternion.multiply(  __idleQ.setFromAxisAngle(__axY,  IDLE.swayTurn*sway2));
-        if (B.Head)   B.Head.quaternion.multiply(  __idleQ.setFromAxisAngle(__axY,  IDLE.swayHead*sway2));
-      }
       composer.render();
     };
+
+    // ---- Gestures: bless (IC-XC) + blessLatin + presentHeart + absolve ----
     head.gestureTemplates["bless"] = {
       "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:0.95,y:-0.35,z:-0.95},
       "RightForeArm.rotation":{x:0.0,y:0.3,z:-1.95}, "RightHand.rotation":{x:-0.3,y:-0.6,z:-0.3},
@@ -930,74 +565,10 @@
       "RightHandThumb1.rotation":{x:0.3,y:-0.2,z:-0.3},
     };
 
-    // ===================== HIERATIC IDLE: lock a frontal "oracle" stance (kills casual pose-cycling) =========
-    // Build the resting pose from the engine's own 'straight' template (arms at the sides, symmetric legs),
-    // then square the axial chain to camera and add a slight reverent downward gaze (toward the altar/visitor
-    // below the screen). Replace the neutral mood's side/hip/wide alternatives with a single 'oracle' hold and
-    // rebuild the anim queue, so the figure stops shifting its weight like a bored human.
-    (function setupHieraticIdle(){
-      const base = head.poseTemplates['straight'];
-      const props = {};
-      for (const k in base.props) props[k] = { ...base.props[k] };
-      Object.assign(props['Hips.rotation'],   {x:0.030, y:0.0, z:0.0});
-      Object.assign(props['Spine.rotation'],  {x:-0.130,y:0.0, z:0.0});
-      Object.assign(props['Spine1.rotation'], {x:-0.020,y:0.0, z:0.0});
-      Object.assign(props['Spine2.rotation'], {x:0.060, y:0.0, z:0.0});
-      Object.assign(props['Neck.rotation'],   {x:0.060, y:0.0, z:0.0});
-      Object.assign(props['Head.rotation'],   {x:0.100, y:0.0, z:0.0});
-      head.poseTemplates['oracle'] = { standing:true, props };
+    hud.textContent = "oracle · light studio · ready";
+    window.__head = head;
 
-      const poseAnim = head.animMoods['neutral'].anims.find(a => a.name === 'pose');
-      if (poseAnim){ delete poseAnim.idle; delete poseAnim.speaking; poseAnim.alt = [ { delay:[60000,120000], vs:{ pose:['oracle'] } } ]; }
-      head.setMood('neutral');                                   // rebuild the pose anim from the edited mood
-      head.poseName = 'oracle';
-      head.setPoseFromTemplate( head.poseTemplates['oracle'] );  // snap into it now
-
-      // cache the axial bones so the per-frame breath/sway in head.render does no scene traversal
-      window.__idleBones = {
-        Hips:   head.scene.getObjectByName('Hips'),   Spine:  head.scene.getObjectByName('Spine'),
-        Spine1: head.scene.getObjectByName('Spine1'), Spine2: head.scene.getObjectByName('Spine2'),
-        Neck:   head.scene.getObjectByName('Neck'),   Head:   head.scene.getObjectByName('Head'),
-      };
-    })();
-
-    // Optional: drop in a real downloaded Mixamo idle FBX (e.g. "Breathing Idle" / "Praying", exported
-    // "without skin") and loop it on the rig instead of the procedural idle above. Asset not bundled.
-    //   window.playMixamoIdle('docs/anim/breathing-idle.fbx');
-    window.playMixamoIdle = (url) => head.playAnimation(url, null, 1e7, 0, 0.01);
-
-    // ---- Gesture orchestration: one varied canonical gesture per submission, always closing on `absolve`.
-    // Replaces the old auto-bless loop, which repeated a single gesture forever. Between submissions the
-    // figure now holds the hieratic idle (breath/sway only) — no ambient gestures. Each submission fires a
-    // varied OPENING gesture (synced to the read-back), then the `absolve` hand of pardon (synced to the
-    // absolution itself, fired from requestAbsolution). The opening never repeats the previous one.
-    // Gestures are queued via head.speakMarker so they land with the actual utterance regardless of LLM
-    // latency (the absolution can take ~25s); a marker fires when speech playback reaches it.
-    const OPENING_GESTURES = [
-      { name:"bless",        play:()=> head.playGesture("bless", 6, false, 900) },        // Roman benediction
-      { name:"blessLatin",   play:()=> head.playGesture("blessLatin", 6, false, 900) },   // Latin (3-finger) benediction
-      { name:"presentHeart", play:()=> head.playGesture("presentHeart", 6, false, 900) }, // open hand to the Sacred Heart
-      { name:"speak",        play:()=> head.playGesture("speak", 6, false, 900) },        // teaching / declaiming hand
-      { name:"signCross",    play:()=> playSignOfCross() },                               // sign of the cross (4-beat)
-      { name:"misereatur",   play:()=> head.playGesture("misereatur", 6, false, 900) },   // joined prayer hands (intercession)
-      { name:"strikeBreast", play:()=> playStrikeBreast() },                              // Confiteor triple-tap (mea culpa)
-    ];
-    let __lastOpening = null;
-    function withSpeechSync(fn){            // fire when speech reaches this point, else immediately
-      try { if (typeof head.speakMarker === "function") head.speakMarker(fn); else fn(); }
-      catch (e) { try { fn(); } catch (_) {} }
-    }
-    window.playOpeningGesture = function(){
-      const pool = OPENING_GESTURES.length > 1
-        ? OPENING_GESTURES.filter(g => g.name !== __lastOpening)
-        : OPENING_GESTURES;
-      const pick = pool[Math.floor(Math.random() * pool.length)];
-      __lastOpening = pick.name;
-      withSpeechSync(() => { try { pick.play(); } catch (e) { console.warn("[gesture] opening failed:", e); } });
-    };
-    window.playAbsolveGesture = function(){
-      withSpeechSync(() => { try { head.playGesture("absolve", 6, false, 900); } catch (e) { console.warn("[gesture] absolve failed:", e); } });
-    };
+    // ===================== EMBLEM + RITE WIRING (appended) =====================
     // ---- ophanim eye-ring: blink driver (module-scope; read each frame by head.render) ----
     let __eyeBlink = 0, __eyeBlinkIndex = 0, __eyeBlinkT0 = 0, __eyeBlinkDur = 280, __eyeNextBlink = 0;
     function __scheduleEyeBlink(now){
@@ -1014,20 +585,9 @@
     }
 
     // ---- Gestures: two-hand + sign-of-the-cross sequence ----
-    function camFov(target, ms){
-      const c = head.camera, from = c.fov, t0 = performance.now();
-      function step(){
-        const k = Math.min(1, (performance.now()-t0)/ms);
-        const e = k<0.5 ? 2*k*k : 1-Math.pow(-2*k+2,2)/2;
-        c.fov = from + (target-from)*e; c.updateProjectionMatrix();
-        if (k<1) requestAnimationFrame(step);
-      }
-      step();
-    }
-    function playWide(name, dur, fov){
-      camFov(fov, 900);
+    // The camera stays locked on the heart-up portrait (fov 8, set above) for every gesture — no zoom on play.
+    function playWide(name, dur){
       head.playGesture(name, dur, false, 900);
-      setTimeout(()=> camFov(window.__restFov ?? 8, 900), (dur-0.9)*1000);   // return to resting lens (portrait or landscape)
     }
     head.gestureTemplates["speak"] = {
       "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.10,y:-0.30,z:-0.80},
@@ -1114,9 +674,10 @@
       setTimeout(()=> head.playGesture("signRightSh", 1.5, false, 700), 3600);
     }
 
-    // ---- Confiteor breast-strike + joined-hands intercession (tuned in oracle-leveled-preview.html) ----
-    // strikeBreast is the contact (fist on the sternum + head bow); strikeBreastLift is the pull-off between
-    // taps. playStrikeBreast chains them into the "mea culpa, mea culpa, mea maxima culpa" triple-tap.
+    /* ===== NEW canonical gestures (research 2026-06-17) — UNTUNED starting poses; prototype/tune here,
+            then port the winners into the kiosk OPENING_GESTURES rotation in index.html. ===== */
+    // strikeBreast — Confiteor "mea culpa": closed fist drawn to the sternum + a slight head bow. Reads only
+    // as MOTION, so it ships as a triple-tap (playStrikeBreast), never a static hold (frozen it == presentHeart).
     head.gestureTemplates["strikeBreast"] = {
       "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:0.82,y:-0.02,z:-0.94},
       "RightForeArm.rotation":{x:1.52,y:-0.98,z:-1.50}, "RightHand.rotation":{x:0.22,y:-0.56,z:-0.10},
@@ -1127,6 +688,7 @@
       "RightHandThumb1.rotation":{x:0.6,y:-0.2,z:-0.6}, "RightHandThumb2.rotation":{x:0.2,y:0.04,z:0.6},
       "Neck.rotation":{x:0.16,y:0,z:0}, "Head.rotation":{x:0.16,y:0,z:0},
     };
+    // fist lifted slightly off the chest, between taps (forearm a touch less flexed)
     head.gestureTemplates["strikeBreastLift"] = {
       "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:0.82,y:0.18,z:-0.86},
       "RightForeArm.rotation":{x:1.52,y:-0.68,z:-1.42}, "RightHand.rotation":{x:-0.12,y:-0.28,z:0.04},
@@ -1144,7 +706,8 @@
       setTimeout(()=> head.playGesture("strikeBreastLift", 1, false, 180), 1120);
       setTimeout(()=> head.playGesture("strikeBreast",     4, false, 160), 1360);
     }
-    // misereatur — joined palm-to-palm prayer hands on the centerline (pre-absolution intercession)
+
+    // misereatur — joined palm-to-palm prayer hands on the centerline (pre-absolution intercession); orans pulled in
     head.gestureTemplates["misereatur"] = {
       "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:0.90,y:-0.22,z:-1.20},
       "RightForeArm.rotation":{x:-0.08,y:0.64,z:-2.10}, "RightHand.rotation":{x:-0.18,y:0.84,z:-0.28},
@@ -1158,12 +721,30 @@
       "LeftHandThumb1.rotation":{x:0.1,y:0.2,z:0.3},
       "Neck.rotation":{x:0.12,y:0,z:0}, "Head.rotation":{x:0.30,y:0,z:0},
     };
+
+    // receive — arms crossed over the chest (Byzantine approach / repose). A listening/rest state, not a rite beat.
+    // WATCH the bottom frame edge: the forearm-crossing point can dip below y~1.34 at fov 8.
+    head.gestureTemplates["receive"] = {
+      "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.30,y:0.10,z:-0.25},
+      "RightForeArm.rotation":{x:0.0,y:0.10,z:-1.85}, "RightHand.rotation":{x:-0.10,y:-0.20,z:-0.30},
+      "RightHandIndex1.rotation":{x:0.05,y:0,z:0}, "RightHandMiddle1.rotation":{x:0.05,y:0,z:0},
+      "RightHandRing1.rotation":{x:0.05,y:0,z:0}, "RightHandPinky1.rotation":{x:0.05,y:0,z:0},
+      "RightHandThumb1.rotation":{x:0.1,y:-0.2,z:-0.3},
+      "LeftShoulder.rotation":{x:1.758,y:-0.099,z:-1.604}, "LeftArm.rotation":{x:1.30,y:-0.10,z:0.25},
+      "LeftForeArm.rotation":{x:0.0,y:-0.10,z:1.85}, "LeftHand.rotation":{x:-0.10,y:0.20,z:0.30},
+      "LeftHandIndex1.rotation":{x:0.05,y:0,z:0}, "LeftHandMiddle1.rotation":{x:0.05,y:0,z:0},
+      "LeftHandRing1.rotation":{x:0.05,y:0,z:0}, "LeftHandPinky1.rotation":{x:0.05,y:0,z:0},
+      "LeftHandThumb1.rotation":{x:0.1,y:0.2,z:0.3},
+    };
+    /* Gesture UI removed 2026-06-19 — this is a LIGHTING-ONLY studio (gesture tuning lives on a separate page).
+       The gesture template definitions above stay defined but unexposed: inert (no buttons, no auto-play). */
+
     /* ===================== SACRED HEART — baked into the avatar GLB (rides the Spine2 joint) ===================== */
     (function(){
       // The heart is now a node inside the avatar GLB, parented to the Spine2 bone and seated in a chest
       // socket — so it follows every pose/gesture/breath through the rig (no per-frame repositioning needed).
       // This block only (a) pins the framing and (b) drives the furnace glow / heartbeat off the painted texture.
-      applyPortraitFraming();
+      window.__cam = { px:0, py:1.58, pz:6.2, tx:0, ty:1.58, tz:0 };   // portrait head+torso frame — matches the production kiosk. Live-tune via window.__cam.
       if (head.controls) head.controls.enabled = false;
       const EMIS = window.__heartEmis = { base:1.0, beat:1.0, flick:0.12 };
       const mats = window.__heartMats = [];   // baked-heart materials we drive for the heartbeat glow
@@ -1196,80 +777,115 @@
     })();
     /* =================== end Sacred Heart =================== */
 
-      } catch (gradeErr) {
-        console.error("[avatar] render layer failed; rendering raw avatar:", gradeErr);
-      }
-    } catch (err) {
-      console.error(err);
-      handleFatalError(isProduction ? err : `Failed to load avatar: ${err}`);
-    }
+    /* ===================== LIGHT STUDIO — live lighting control panel ===================== */
+    (function(){
+      const el = (t)=>document.createElement(t);
+      const hx6 = (n)=>"#"+((n>>>0) & 0xffffff).toString(16).padStart(6,"0");   // 0xRRGGBB -> "#rrggbb"
+      const oxs = (n)=>"0x"+((n>>>0) & 0xffffff).toString(16).padStart(6,"0");  // 0xRRGGBB -> "0xrrggbb" literal
+      const toHex = (s)=>parseInt(s.slice(1),16);                              // "#rrggbb" -> number
+      const f = (n)=>(+n).toFixed(2);
+      let jawVal = 0;
 
-    if (!isProduction) {
-      // Dev harm-picker (ALG-14): fetch the canonical categories, render checkboxes, and on send
-      // POST the punched ids through window.requestAbsolution -> /absolution -> avatar + LLM.
-      const harmList = document.getElementById("harm-list");
-      const harmSend = document.getElementById("harm-send");
-      const harmClear = document.getElementById("harm-clear");
-      const absBase = window.ABSOLUTION_ENDPOINT || "/absolution";
-      fetch(absBase + "/categories")
-        .then((r) => (r.ok ? r.json() : Promise.reject("HTTP " + r.status)))
-        .then((d) => {
-          for (const c of (d && d.categories) || []) {
-            const label = document.createElement("label");
-            const cb = document.createElement("input");
-            cb.type = "checkbox";
-            cb.value = c.id;
-            label.append(cb, document.createTextNode(" " + c.label));
-            harmList.append(label);
-          }
-          harmSend.disabled = false;
-        })
-        .catch((e) => console.warn("[harm-picker] could not load categories:", e));
-      harmClear.addEventListener("click", () => {
-        harmList.querySelectorAll("input:checked").forEach((i) => { i.checked = false; });
-      });
-      harmSend.addEventListener("click", async () => {
-        if (typeof window.requestAbsolution !== "function") { console.warn("[avatar] not ready yet"); return; }
-        const punched = [...harmList.querySelectorAll("input:checked")].map((i) => i.value);
-        harmSend.disabled = true;
-        try {
-          await window.requestAbsolution({ punched }); // avatar speaks the read-back + response; no on-screen text
-        } catch (err) {
-          console.warn("[absolution] request failed:", err);
-        } finally {
-          harmSend.disabled = false;
-        }
-      });
-    }
+      function skin(fn){ scene.traverse(o=>{ if(o.isMesh&&o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{ if(m&&m.name==="OracleSkin") fn(m); }); } }); }
+      function setEmis(v){ window.__tatEmis=v; skin(m=>{ m.emissiveIntensity=v; m.needsUpdate=true; }); }
+      function setJaw(v){ jawVal=v; scene.traverse(o=>{ if(o.isSkinnedMesh&&o.morphTargetDictionary&&o.morphTargetDictionary.jawOpen!=null) o.morphTargetInfluences[o.morphTargetDictionary.jawOpen]=v; }); }
 
-    // ===== SHOWCASE BRIDGE — Denver two-screen demo (2026-06). REMOVE FOR FINAL INSTALL. =====
-    // A standalone punch card (showcase/form-1517a.html) runs in a separate window and posts the
-    // punched card here over a same-origin BroadcastChannel. We forward it to the SAME
-    // window.requestAbsolution() the real card reader will call (so this changes nothing about the
-    // production contract). Gated behind ?showcase, so it is inert in the real install. To remove
-    // the showcase entirely: delete this block and the showcase/ folder.
-    if (new URLSearchParams(location.search).has("showcase") && "BroadcastChannel" in window) {
-      const showcaseChannel = new BroadcastChannel("absolution");
-      showcaseChannel.onmessage = (ev) => {
-        const d = ev.data || {};
-        if (d.type !== "submit") return;
-        showcaseChannel.postMessage({ type: "ack", ts: d.ts }); // tell the card it was received
-        if (typeof window.requestAbsolution === "function") {
-          window.requestAbsolution({ punched: Array.isArray(d.punched) ? d.punched : [] });
-        } else {
-          console.warn("[showcase] requestAbsolution not ready yet");
-        }
+      // read/write each knob (LIGHT changes re-call applyLights; BLOOM/GOD/ICON are pushed every frame by the loops)
+      const get = {
+        emis:()=> (window.__tatEmis!=null?window.__tatEmis:0.27),
+        amb:()=>LIGHT.amb, keyI:()=>LIGHT.keyI, keyX:()=>LIGHT.keyPos[0], keyY:()=>LIGHT.keyPos[1], keyZ:()=>LIGHT.keyPos[2],
+        fillI:()=>LIGHT.fillI, fillX:()=>LIGHT.fillPos[0], fillY:()=>LIGHT.fillPos[1], fillZ:()=>LIGHT.fillPos[2],
+        rimI:()=>LIGHT.rimI, rimX:()=>LIGHT.rimPos[0], rimY:()=>LIGHT.rimPos[1], rimZ:()=>LIGHT.rimPos[2],
+        bloomS:()=>BLOOM.strength, bloomR:()=>BLOOM.radius, bloomT:()=>BLOOM.threshold,
+        godExp:()=>GOD.exposure, godWt:()=>GOD.weight, godGate:()=>GOD.gateLo, godDens:()=>GOD.density,
+        gExp:()=>ICON.exposure, gVig:()=>ICON.vignette, jaw:()=>jawVal,
       };
-      console.log("[showcase] bridge listening on BroadcastChannel('absolution')");
-    }
-    // ===== END SHOWCASE BRIDGE =====
+      const set = {
+        emis:setEmis,
+        amb:v=>{LIGHT.amb=v;applyLights();},
+        keyI:v=>{LIGHT.keyI=v;applyLights();}, keyX:v=>{LIGHT.keyPos[0]=v;applyLights();}, keyY:v=>{LIGHT.keyPos[1]=v;applyLights();}, keyZ:v=>{LIGHT.keyPos[2]=v;applyLights();},
+        fillI:v=>{LIGHT.fillI=v;applyLights();}, fillX:v=>{LIGHT.fillPos[0]=v;applyLights();}, fillY:v=>{LIGHT.fillPos[1]=v;applyLights();}, fillZ:v=>{LIGHT.fillPos[2]=v;applyLights();},
+        rimI:v=>{LIGHT.rimI=v;applyLights();}, rimX:v=>{LIGHT.rimPos[0]=v;applyLights();}, rimY:v=>{LIGHT.rimPos[1]=v;applyLights();}, rimZ:v=>{LIGHT.rimPos[2]=v;applyLights();},
+        bloomS:v=>{BLOOM.strength=v;}, bloomR:v=>{BLOOM.radius=v;}, bloomT:v=>{BLOOM.threshold=v;},
+        godExp:v=>{GOD.exposure=v;}, godWt:v=>{GOD.weight=v;}, godGate:v=>{GOD.gateLo=v;}, godDens:v=>{GOD.density=v;},
+        gExp:v=>{ICON.exposure=v;}, gVig:v=>{ICON.vignette=v;}, jaw:setJaw,
+      };
+      const SPEC = [
+        ["Body",            [["emis","emission",0,2,0.01]]],
+        ["Ambient",         [["amb","intensity",0,1.5,0.01]]],
+        ["Key · face",      [["keyI","intensity",0,4,0.01],["keyX","x",-4,4,0.05],["keyY","y",0,5,0.05],["keyZ","z",-5,5,0.05]]],
+        ["Fill",            [["fillI","intensity",0,3,0.01],["fillX","x",-4,4,0.05],["fillY","y",0,5,0.05],["fillZ","z",-5,5,0.05]]],
+        ["Rim · god-light", [["rimI","intensity",0,5,0.01],["rimX","x",-4,4,0.05],["rimY","y",0,5,0.05],["rimZ","z",-5,5,0.05]]],
+        ["Bloom",           [["bloomS","strength",0,1,0.01],["bloomR","radius",0,1,0.01],["bloomT","threshold",0,2,0.01]]],
+        ["Godrays",         [["godExp","exposure",0,0.3,0.005],["godWt","weight",0,0.6,0.01],["godGate","gate",0,1,0.01],["godDens","density",0,1,0.01]]],
+        ["Grade",           [["gExp","exposure",0,1.6,0.01],["gVig","vignette",0,2,0.01]]],
+        ["Mouth · test",    [["jaw","jawOpen (hold)",0,1,0.01]]],
+      ];
+      const COLORS = [["ambHex","ambient"],["keyHex","key"],["fillHex","fill"],["rimHex","rim"]];
 
-    // Two-window showcase: don't suspend audio when the form window steals focus.
-    document.addEventListener("visibilitychange", () => {
-      if (isShowcase) return;
-      if (document.visibilityState === "visible") head.start();
-      else head.stop();
-    });
+      const panel = el("div"); panel.id="light";
+      const h1 = el("div"); h1.className="ls-h1"; h1.textContent="LIGHT STUDIO"; panel.appendChild(h1);
+      const sub = el("div"); sub.className="ls-sub"; sub.textContent="live · matches kiosk · press H to hide UI"; panel.appendChild(sub);
+
+      SPEC.forEach(([group, rows])=>{
+        const h=el("div"); h.className="ls-h2"; h.textContent=group; panel.appendChild(h);
+        rows.forEach(([k,label,min,max,step])=>{
+          const row=el("div"); row.className="tune-row";
+          const lab=el("span"); lab.className="tune-lab"; lab.textContent=label;
+          const rng=el("input"); rng.type="range"; rng.min=min; rng.max=max; rng.step=step; rng.value=String(get[k]());
+          const num=el("span"); num.className="tune-num"; num.textContent=f(get[k]());
+          rng.oninput=()=>{ const v=parseFloat(rng.value); set[k](v); num.textContent=f(v); refresh(); };
+          row.append(lab,rng,num); panel.appendChild(row);
+        });
+      });
+
+      const ch=el("div"); ch.className="ls-h2"; ch.textContent="Light colors"; panel.appendChild(ch);
+      COLORS.forEach(([hexKey,label])=>{
+        const row=el("div"); row.className="tune-row";
+        const lab=el("span"); lab.className="tune-lab"; lab.textContent=label;
+        const col=el("input"); col.type="color"; col.value=hx6(LIGHT[hexKey]);
+        col.oninput=()=>{ LIGHT[hexKey]=toHex(col.value); applyLights(); refresh(); };
+        row.append(lab,col); panel.appendChild(row);
+      });
+
+      const cr=el("div"); cr.className="tune-row";
+      const cbtn=el("button"); cbtn.textContent="copy values"; const cmsg=el("span"); cmsg.className="ls-msg";
+      cr.append(cbtn,cmsg); panel.appendChild(cr);
+      const out=el("pre"); out.id="ls-dump"; panel.appendChild(out);
+
+      function dump(){
+        const L=LIGHT;
+        const lightStr = "Object.assign(window.LIGHT, { amb:"+f(L.amb)+", ambHex:"+oxs(L.ambHex)
+          +", keyI:"+f(L.keyI)+", keyHex:"+oxs(L.keyHex)+", keyPos:["+L.keyPos.map(f).join(",")+"]"
+          +", fillI:"+f(L.fillI)+", fillHex:"+oxs(L.fillHex)+", fillPos:["+L.fillPos.map(f).join(",")+"]"
+          +", rimI:"+f(L.rimI)+", rimHex:"+oxs(L.rimHex)+", rimPos:["+L.rimPos.map(f).join(",")+"] }); applyLights();";
+        return [
+          "// LIGHT STUDIO export — paste the values into index.html's render layer",
+          "window.__tatEmis = "+f(get.emis())+";   // also set the L473 emissive default in index.html",
+          lightStr,
+          "Object.assign(window.BLOOM, { strength:"+f(BLOOM.strength)+", radius:"+f(BLOOM.radius)+", threshold:"+f(BLOOM.threshold)+" });",
+          "Object.assign(window.GOD, { exposure:"+(+GOD.exposure).toFixed(3)+", weight:"+f(GOD.weight)+", gateLo:"+f(GOD.gateLo)+", density:"+f(GOD.density)+" });",
+          "window.ICON.exposure = "+f(ICON.exposure)+"; window.ICON.vignette = "+f(ICON.vignette)+";",
+        ].join("\n");
+      }
+      function refresh(){ out.textContent=dump(); }
+      cbtn.onclick=()=>{ const s=dump(); try{ navigator.clipboard.writeText(s); }catch(e){} console.log(s);
+        cmsg.textContent=" copied ✓"; setTimeout(()=>{ cmsg.textContent=""; },1400); };
+
+      document.body.appendChild(panel);
+      refresh();
+      window.__lightStudioDump = dump;   // console fallback: copy(window.__lightStudioDump())
+
+      // press H to hide/show all overlay UI for an unobstructed read of the figure
+      let uiHidden=false;
+      window.addEventListener("keydown",(e)=>{
+        if(e.key!=="h"&&e.key!=="H") return;
+        uiHidden=!uiHidden;
+        ["light","hud"].forEach(id=>{ const n=document.getElementById(id); if(n) n.style.display=uiHidden?"none":""; });
+      });
+    })();
+    /* =================== end LIGHT STUDIO =================== */
+
   </script>
 </body>
 </html>
