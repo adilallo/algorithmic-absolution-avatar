@@ -98,6 +98,19 @@
       eyeAmt:0.0, eyeN:14.0, eyeRadius:0.225, eyeScale:0.026,   // ophanim eye-ring removed (set eyeAmt>0 to bring it back)
     };
 
+    // ---- Hieratic idle config (ported from production index.html). Locks a frontal "oracle" stance + layers slow
+    // breath/sway onto the axial bones each frame, REPLACING TalkingHead's casual pose-cycling idle (which turned
+    // the head and drifted the figure — very visible at the tight close-up). Live-tunable on window.IDLE. ----
+    const IDLE = window.IDLE = {
+      on:1,
+      breathBpm:11.0,                                              // slow, meditative breaths per minute
+      breathSpine1:0.034, breathSpine2:0.026, breathNeck:0.012, breathHead:0.010,  // chest-expansion amplitudes (rad)
+      swayPeriod:26.0,                                             // seconds for one lateral sway cycle
+      swayLean:0.013, swayTurn:0.010, swayHead:0.011,              // spine lean / hip turn / head drift (rad)
+    };
+    const __idleQ = new THREE.Quaternion();
+    const __axX = new THREE.Vector3(1,0,0), __axY = new THREE.Vector3(0,1,0), __axZ = new THREE.Vector3(0,0,1);
+
     const head = new TalkingHead(avatarEl, {
       ttsEndpoint:"none", lipsyncModules:[], cameraView:"head",
       lightAmbientColor:0xfff1dc, lightAmbientIntensity:0.42,
@@ -107,8 +120,11 @@
 
     const avatarUrl = new URLSearchParams(location.search).get("url") || "docs/base/oracle-icon-heart.glb?v=19";
     await head.showAvatar({ url:avatarUrl, body:"F", avatarMood:"neutral", lipsyncLang:"en",
-        avatarIdleEyeContact:0.98, avatarIdleHeadMove:0.015,
-        avatarSpeakingEyeContact:0.98, avatarSpeakingHeadMove:0.06 },
+        // gaze-locked forward + head-look damped so the tight close-up stays centred/steady; the hieratic
+        // breath/sway below keeps it alive. (Prod uses 0.015 idle / 0.06 speaking head-move — fine at its wider
+        // framing, but it visibly wandered the head at this close-up; apply the same damping when porting.)
+        avatarIdleEyeContact:0.99, avatarIdleHeadMove:0.0,
+        avatarSpeakingEyeContact:0.99, avatarSpeakingHeadMove:0.012 },
       (ev)=>{ if(ev.lengthComputable) hud.textContent = "loading "+Math.round(ev.loaded/ev.total*100)+"%"; });
 
     window.head = head;  // dev: expose for live console tuning, e.g. head.gestureTemplates.strikeBreast["RightForeArm.rotation"].z = -1.6; head.playGesture("strikeBreast",4,false,450)
@@ -128,8 +144,9 @@
         if (m.name === "OracleSkin" || (/skin|base/i.test(n) && o.name === "Human")) {
           m.roughness=0.95; m.metalness=0.0;
           if (m.color) m.color.setRGB(0.88,0.84,0.80);   // pale porcelain flesh (ref-matched)
-          // Catholic tattoos baked into OracleSkin: gold lines in Base Color + gold gild in emissiveMap (no dark outline).
-          if (m.emissive){ m.emissive.setRGB(1,1,1); m.emissiveIntensity = (window.__tatEmis||1.8); } m.needsUpdate=true;
+          // Ethereal inner glow on the bare porcelain skin (tattoos removed 2026-06-19). Dialed down from 1.8 so the
+          // diffuse-lit term + the dark COLOR_0 mouth read through it. The AUTO-CAMERA block swells this when zoomed out.
+          if (m.emissive){ m.emissive.setRGB(1,1,1); m.emissiveIntensity = (window.__tatEmis||0.27); } m.needsUpdate=true;
         } else if (m.name === "IconGold") {
           m.roughness=0.85; m.metalness=0.10;
           if (m.color) m.color.setRGB(0.74,0.58,0.16);
@@ -146,15 +163,28 @@
       });
     });
 
-    // --- Lighting: even + frontal + warm (ref-matched). Soften the key and lift the fill so neither side of the
-    // body falls into shadow — the reference figure is bathed in a soft, near-shadowless warm glow. Live-tunable. ---
-    const LIGHT = window.LIGHT = { amb:0.46, key:0.24, keyX:0.05, keyY:1.70, keyZ:2.30 };
+    // --- Lighting: "god-light" rig (matches the production kiosk). Warm KEY front-above (face form), cool FILL,
+    // warm RIM behind (the ethereal halo-edge backlight), all aimed at a shared chest target. ---
+    const LIGHT = window.LIGHT = {
+      amb:0.18, ambHex:0xfff1dc,
+      keyI:1.05, keyHex:0xffe7c8, keyPos:[0.5,2.9,2.8],
+      fillI:0.30, fillHex:0xc6d2ff, fillPos:[-1.2,1.5,2.4],
+      rimI:2.4,  rimHex:0xffd49a, rimPos:[0,2.6,-3.0],
+    };
     function applyLights(){
-      scene.traverse((o)=>{
-        if (o.isAmbientLight){ o.intensity = LIGHT.amb; if(o.color) o.color.setHex(0xfff1dc); }
-        else if (o.isDirectionalLight){ o.intensity = LIGHT.key; if(o.color) o.color.setHex(0xffe9c8);
-          o.position.set(LIGHT.keyX, LIGHT.keyY, LIGHT.keyZ); }
-      });
+      let amb=null, key=null;
+      scene.traverse((o)=>{ if(o.isAmbientLight) amb=o; else if(o.isDirectionalLight && !key) key=o; });
+      if(!window.__lightTarget){ window.__lightTarget = new THREE.Object3D(); window.__lightTarget.position.set(0,1.55,0); scene.add(window.__lightTarget); }
+      const tgt = window.__lightTarget;
+      if(amb){ amb.intensity=LIGHT.amb; if(amb.color) amb.color.setHex(LIGHT.ambHex); }
+      if(key){ key.intensity=LIGHT.keyI; if(key.color) key.color.setHex(LIGHT.keyHex);
+               key.position.set(LIGHT.keyPos[0],LIGHT.keyPos[1],LIGHT.keyPos[2]); key.target=tgt; }
+      if(!window.__fillLight){ window.__fillLight = new THREE.DirectionalLight(0xffffff,1); window.__fillLight.target=tgt; scene.add(window.__fillLight); }
+      window.__fillLight.intensity=LIGHT.fillI; window.__fillLight.color.setHex(LIGHT.fillHex);
+      window.__fillLight.position.set(LIGHT.fillPos[0],LIGHT.fillPos[1],LIGHT.fillPos[2]);
+      if(!window.__rimLight){ window.__rimLight = new THREE.DirectionalLight(0xffffff,1); window.__rimLight.target=tgt; scene.add(window.__rimLight); }
+      window.__rimLight.intensity=LIGHT.rimI; window.__rimLight.color.setHex(LIGHT.rimHex);
+      window.__rimLight.position.set(LIGHT.rimPos[0],LIGHT.rimPos[1],LIGHT.rimPos[2]);
     }
     applyLights();
 
@@ -413,9 +443,8 @@
 
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
-    // half-res bloom so the emissive Sacred Heart reads as a furnace; threshold-gated to spare the matte gold field
-    // pale-skin direction: bloom kept very low so the pale flesh + gold lines don't blow out
-    const BLOOM = window.BLOOM = { strength:0.22, radius:0.55, threshold:1.7 };
+    // half-res bloom for the ethereal halo glow; threshold ~1.0 so only the halo + rim-lit edges bloom (matches kiosk).
+    const BLOOM = window.BLOOM = { strength:0.22, radius:0.60, threshold:1.00 };
     const bloomPass = new UnrealBloomPass(new THREE.Vector2(1,1), BLOOM.strength, BLOOM.radius, BLOOM.threshold);
     composer.addPass(bloomPass);
     composer.addPass(new OutputPass());
@@ -423,10 +452,9 @@
     composer.addPass(gradePass);
 
     // ---- GODRAYS: volumetric light scattering for a holy backdrop (radial blur of the bright halo disc) ----
-    // OFF for the pale-skin direction: the bright porcelain flesh fed the scatter and washed the figure
-    // godrays ON, origin = the Sacred Heart (set in godLoop). gateLo lowered so the heart/chest throws shafts;
-    // the body is dimmed (see LIGHT) so a low gate no longer washes the flesh out.
-    const GOD = window.GOD = { on:1, exposure:0.095, decay:0.95, density:0.52, weight:0.24, gateLo:0.70 };
+    // Origin = the halo disc behind the head (godLoop falls back to Aura_Disc). Subtle at the close-up default;
+    // the AUTO-CAMERA block SWELLS exposure/weight + drops the gate when the camera zooms out for a gesture.
+    const GOD = window.GOD = { on:1, exposure:0.040, decay:0.95, density:0.50, weight:0.16, gateLo:0.85 };
     const GODRAYS = {
       uniforms:{ tDiffuse:{value:null}, lightPos:{value:new THREE.Vector2(0.5,0.46)},
                  exposure:{value:GOD.exposure}, decay:{value:GOD.decay}, density:{value:GOD.density},
@@ -499,6 +527,20 @@
       u.beat.value = Math.min(1.0, (s1 + (ph<0.34?s2:0.0))) * LV.beatDepth;
       // pin a stable head+chest frame each render (TalkingHead keeps recentring on the head bone)
       if (window.__cam){ const C=window.__cam; camera.position.set(C.px,C.py,C.pz); camera.lookAt(C.tx,C.ty,C.tz); }
+      // ---- Hieratic idle: slow breath + micro-sway post-multiplied onto the axial bones (ported from prod) ----
+      if (IDLE.on && window.__idleBones){
+        const B = window.__idleBones;
+        const br    = Math.sin(t * (IDLE.breathBpm/60) * TAU);
+        const sway  = Math.sin(t * TAU / IDLE.swayPeriod);
+        const sway2 = Math.sin(t * TAU / (IDLE.swayPeriod*1.6) + 1.1);
+        if (B.Spine1) B.Spine1.quaternion.multiply(__idleQ.setFromAxisAngle(__axX, -IDLE.breathSpine1*br));
+        if (B.Spine2) B.Spine2.quaternion.multiply(__idleQ.setFromAxisAngle(__axX, -IDLE.breathSpine2*br));
+        if (B.Neck)   B.Neck.quaternion.multiply(  __idleQ.setFromAxisAngle(__axX,  IDLE.breathNeck*br));
+        if (B.Head)   B.Head.quaternion.multiply(  __idleQ.setFromAxisAngle(__axX,  IDLE.breathHead*br));
+        if (B.Spine)  B.Spine.quaternion.multiply( __idleQ.setFromAxisAngle(__axZ,  IDLE.swayLean*sway));
+        if (B.Hips)   B.Hips.quaternion.multiply(  __idleQ.setFromAxisAngle(__axY,  IDLE.swayTurn*sway2));
+        if (B.Head)   B.Head.quaternion.multiply(  __idleQ.setFromAxisAngle(__axY,  IDLE.swayHead*sway2));
+      }
       composer.render();
     };
 
@@ -861,6 +903,114 @@
       beatLoop();
     })();
     /* =================== end Sacred Heart =================== */
+
+    // ===================== HIERATIC IDLE: lock a frontal "oracle" stance (ported from prod; kills casual pose-cycling) =====
+    (function setupHieraticIdle(){
+      const base = head.poseTemplates['straight'];
+      const props = {};
+      for (const k in base.props) props[k] = { ...base.props[k] };
+      Object.assign(props['Hips.rotation'],   {x:0.030, y:0.0, z:0.0});
+      Object.assign(props['Spine.rotation'],  {x:-0.130,y:0.0, z:0.0});
+      Object.assign(props['Spine1.rotation'], {x:-0.020,y:0.0, z:0.0});
+      Object.assign(props['Spine2.rotation'], {x:0.060, y:0.0, z:0.0});
+      Object.assign(props['Neck.rotation'],   {x:0.060, y:0.0, z:0.0});
+      Object.assign(props['Head.rotation'],   {x:0.100, y:0.0, z:0.0});
+      head.poseTemplates['oracle'] = { standing:true, props };
+      const poseAnim = head.animMoods['neutral'].anims.find(a => a.name === 'pose');
+      if (poseAnim){ delete poseAnim.idle; delete poseAnim.speaking; poseAnim.alt = [ { delay:[60000,120000], vs:{ pose:['oracle'] } } ]; }
+      head.setMood('neutral');
+      head.poseName = 'oracle';
+      head.setPoseFromTemplate( head.poseTemplates['oracle'] );
+      window.__idleBones = {
+        Hips:   head.scene.getObjectByName('Hips'),   Spine:  head.scene.getObjectByName('Spine'),
+        Spine1: head.scene.getObjectByName('Spine1'), Spine2: head.scene.getObjectByName('Spine2'),
+        Neck:   head.scene.getObjectByName('Neck'),   Head:   head.scene.getObjectByName('Head'),
+      };
+    })();
+    window.playMixamoIdle = (url) => head.playAnimation(url, null, 1e7, 0, 0.01);
+
+    /* ===================== AUTO-CAMERA: face by default, gentle zoom-out for gestures ===================== */
+    (function(){
+      // FACE = the standard resting frame (locked on the face). WIDE = pulled back so a full gesture fits.
+      // Tunable live: window.CAMRIG.wide.pz = 7.2; etc. (changes apply on the next gesture).
+      const CAMRIG = window.CAMRIG = {
+        on: true,
+        face: { px:0, py:1.74, pz:1.72, tx:0, ty:1.74, tz:0, fov:10 },  // tight + raised + closer: face fills, chin near bottom, neck cropped
+        wide: { px:0, py:1.62, pz:3.8,  tx:0, ty:1.60, tz:0, fov:15 },  // medium + raised: head + halo + chest + gesture, cropped ~navel (less lower body)
+        outMs: 950, inMs: 1200, hold: 350,   // slow ease-out, slower ease-in, extra hold after the gesture's duration
+      };
+      const lerp = (a,b,t)=> a+(b-a)*t;
+      const ease = (t)=> t<0.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;   // ease-in-out — gentle accel/decel
+      let camRAF = null;
+      function tweenCam(to, ms){
+        if(camRAF) cancelAnimationFrame(camRAF);
+        const c = window.__cam, from = {px:c.px,py:c.py,pz:c.pz,tx:c.tx,ty:c.ty,tz:c.tz,fov:camera.fov}, t0 = performance.now();
+        (function step(){
+          const k = Math.min(1,(performance.now()-t0)/ms), e = ease(k);
+          c.px=lerp(from.px,to.px,e); c.py=lerp(from.py,to.py,e); c.pz=lerp(from.pz,to.pz,e);
+          c.tx=lerp(from.tx,to.tx,e); c.ty=lerp(from.ty,to.ty,e); c.tz=lerp(from.tz,to.tz,e);
+          if(to.fov!=null){ camera.fov = lerp(from.fov,to.fov,e); camera.updateProjectionMatrix(); }
+          camRAF = k<1 ? requestAnimationFrame(step) : null;
+        })();
+      }
+      window.__tweenCam = tweenCam;
+
+      // --- Camera-coupled LIGHTING SWELL: the close-up keeps the production default; zooming out for a gesture
+      // swells the god-rays + inner glow, then settles back on return. Tunable live via window.LIGHTSWELL. ---
+      const LIGHTSWELL = window.LIGHTSWELL = {
+        on: true,
+        close: { godExp:0.040, godWt:0.16, godGate:0.85, emis:0.27, bloomS:0.22 },  // production default (close-up) — keep in sync with the baked GOD/BLOOM/emissive
+        swell: { godExp:0.080, godWt:0.23, godGate:0.72, emis:0.34, bloomS:0.26 },  // more god-ray + glow when wide (figure still reads)
+      };
+      const setEmis = (v)=> scene.traverse(o=>{ if(o.isMesh&&o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{ if(m&&m.name==="OracleSkin"){ m.emissiveIntensity=v; m.needsUpdate=true; } }); } });
+      const getEmis = ()=>{ let v=LIGHTSWELL.close.emis; scene.traverse(o=>{ if(o.isMesh&&o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{ if(m&&m.name==="OracleSkin") v=m.emissiveIntensity; }); } }); return v; };
+      let lightRAF = null;
+      function tweenLight(to, ms){
+        if(lightRAF) cancelAnimationFrame(lightRAF);
+        const from = { godExp:GOD.exposure, godWt:GOD.weight, godGate:GOD.gateLo, emis:getEmis(), bloomS:BLOOM.strength }, t0 = performance.now();
+        (function step(){
+          const k = Math.min(1,(performance.now()-t0)/ms), e = ease(k);
+          GOD.exposure = lerp(from.godExp,to.godExp,e); GOD.weight = lerp(from.godWt,to.godWt,e); GOD.gateLo = lerp(from.godGate,to.godGate,e);
+          BLOOM.strength = lerp(from.bloomS,to.bloomS,e); setEmis(lerp(from.emis,to.emis,e));
+          lightRAF = k<1 ? requestAnimationFrame(step) : null;
+        })();
+      }
+      window.__tweenLight = tweenLight;
+
+      // Standard resting view = FACE (overrides the heart-block's head-up default).
+      window.__cam = { px:CAMRIG.face.px, py:CAMRIG.face.py, pz:CAMRIG.face.pz, tx:CAMRIG.face.tx, ty:CAMRIG.face.ty, tz:CAMRIG.face.tz };
+      camera.fov = CAMRIG.face.fov; camera.updateProjectionMatrix();
+
+      // Sustained zoom-out: pull back on the first gesture call, stay wide while calls keep coming
+      // (multi-tap strikeBreast / the sign-of-cross sequence), then ease back to the face after the last hold.
+      let returnTimer = null, isWide = false;
+      function gestureCamera(durSec){
+        durSec = (typeof durSec==="number" && durSec>0) ? durSec : 4;
+        if(!isWide){ isWide = true; tweenCam(CAMRIG.wide, CAMRIG.outMs); if(LIGHTSWELL.on) tweenLight(LIGHTSWELL.swell, CAMRIG.outMs); }
+        if(returnTimer) clearTimeout(returnTimer);
+        returnTimer = setTimeout(()=>{ isWide=false; tweenCam(CAMRIG.face, CAMRIG.inMs); if(LIGHTSWELL.on) tweenLight(LIGHTSWELL.close, CAMRIG.inMs); returnTimer=null; }, durSec*1000 + CAMRIG.hold);
+      }
+      window.__gestureCamera = gestureCamera;
+
+      // Hook playGesture. Skip very-short transitions (<200ms): those are the pose-tuner's live "re-hold" and the
+      // rapid sub-taps of strikeBreast — we don't want the camera to yo-yo while pose-tuning, and the sustain
+      // timer from the gesture's first (long-transition) call already keeps it wide across the taps.
+      const _play = head.playGesture.bind(head);
+      head.playGesture = function(name, dur, mirror, transMs){
+        if(CAMRIG.on && (transMs==null || transMs>=200)) gestureCamera(dur);
+        return _play(name, dur, mirror, transMs);
+      };
+
+      // Toggle on the button bar so the behaviour can be compared on/off while testing.
+      const ctl = document.getElementById("ctl");
+      if(ctl){
+        const b = document.createElement("button"); b.id="camtoggle"; b.textContent="cam: auto";
+        b.onclick = ()=>{ CAMRIG.on = !CAMRIG.on; b.textContent = "cam: "+(CAMRIG.on?"auto":"off");
+          if(!CAMRIG.on){ if(returnTimer){ clearTimeout(returnTimer); returnTimer=null; } isWide=false; tweenCam(CAMRIG.face, CAMRIG.inMs); } };
+        ctl.appendChild(b);
+      }
+    })();
+    /* =================== end AUTO-CAMERA =================== */
 
   </script>
 </body>

@@ -321,9 +321,10 @@
           ttsLang: "en-US",
           ttsVoice: VOICE_PRESETS.clear.ttsVoice, ttsPitch: VOICE_PRESETS.clear.ttsPitch, ttsRate: VOICE_PRESETS.clear.ttsRate,
           lipsyncLang: "en",
-          // Calm, gaze-locked hieratic idle (matches the preview).
-          avatarIdleEyeContact: 0.98, avatarIdleHeadMove: 0.015,
-          avatarSpeakingEyeContact: 0.98, avatarSpeakingHeadMove: 0.06,
+          // Calm, gaze-locked hieratic idle. Head-look damped (0 idle / 0.012 speaking) so the tight close-up
+          // stays centred/steady; the hieratic breath/sway in head.render keeps it alive. (matches the preview)
+          avatarIdleEyeContact: 0.99, avatarIdleHeadMove: 0.0,
+          avatarSpeakingEyeContact: 0.99, avatarSpeakingHeadMove: 0.012,
         },
         (ev) => {
           if (ev.lengthComputable) {
@@ -828,6 +829,10 @@
       if (!isProduction) return;
       const w = avatarEl.clientWidth, h = avatarEl.clientHeight;
       if (!w || !h) return;
+      // The AUTO-CAMERA owns the resting frame (tight face) once defined — keep resize in sync with it.
+      if (window.CAMRIG){ const F = window.CAMRIG.face;
+        window.__cam = { px:F.px, py:F.py, pz:F.pz, tx:F.tx, ty:F.ty, tz:F.tz };
+        camera.fov = F.fov; window.__restFov = F.fov; camera.updateProjectionMatrix(); return; }
       const portrait = h > w || new URLSearchParams(location.search).has("portrait");
       if (portrait) {
         // Torso crop: navel (~y 1.01) through halo disc top (~y 2.05). Telephoto + closer than landscape.
@@ -1195,6 +1200,71 @@
       beatLoop();
     })();
     /* =================== end Sacred Heart =================== */
+
+    /* ===================== AUTO-CAMERA + LIGHTING SWELL (ported from the gesture-tuning preview) =====================
+       Resting frame = a tight, centred face. When a gesture fires the camera eases OUT to a medium frame that holds
+       the whole gesture (head + halo + chest) and the god-rays + glow SWELL; on return it eases back to the face. */
+    (function(){
+      const CAMRIG = window.CAMRIG = {
+        on: true,
+        face: { px:0, py:1.74, pz:1.72, tx:0, ty:1.74, tz:0, fov:10 },  // resting: tight, centred face (neck cropped)
+        wide: { px:0, py:1.62, pz:3.8,  tx:0, ty:1.60, tz:0, fov:15 },  // gesture: head + halo + chest, cropped ~navel
+        outMs: 950, inMs: 1200, hold: 350,
+      };
+      const LIGHTSWELL = window.LIGHTSWELL = {
+        on: true,
+        close: { godExp:0.040, godWt:0.16, godGate:0.85, emis:0.27, bloomS:0.22 },  // = the baked GOD/BLOOM/emissive defaults
+        swell: { godExp:0.080, godWt:0.23, godGate:0.72, emis:0.34, bloomS:0.26 },  // more god-ray + glow when wide
+      };
+      const lerp = (a,b,t)=> a+(b-a)*t;
+      const ease = (t)=> t<0.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
+      const setEmis = (v)=> scene.traverse(o=>{ if(o.isMesh&&o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{ if(m&&m.name==="OracleSkin"){ m.emissiveIntensity=v; m.needsUpdate=true; } }); } });
+      const getEmis = ()=>{ let v=LIGHTSWELL.close.emis; scene.traverse(o=>{ if(o.isMesh&&o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{ if(m&&m.name==="OracleSkin") v=m.emissiveIntensity; }); } }); return v; };
+      let camRAF=null, lightRAF=null;
+      function tweenCam(to, ms){
+        if(camRAF) cancelAnimationFrame(camRAF);
+        const c=window.__cam, from={px:c.px,py:c.py,pz:c.pz,tx:c.tx,ty:c.ty,tz:c.tz,fov:camera.fov}, t0=performance.now();
+        (function step(){
+          const k=Math.min(1,(performance.now()-t0)/ms), e=ease(k);
+          c.px=lerp(from.px,to.px,e); c.py=lerp(from.py,to.py,e); c.pz=lerp(from.pz,to.pz,e);
+          c.tx=lerp(from.tx,to.tx,e); c.ty=lerp(from.ty,to.ty,e); c.tz=lerp(from.tz,to.tz,e);
+          if(to.fov!=null){ camera.fov=lerp(from.fov,to.fov,e); camera.updateProjectionMatrix(); }
+          camRAF = k<1 ? requestAnimationFrame(step) : null;
+        })();
+      }
+      function tweenLight(to, ms){
+        if(lightRAF) cancelAnimationFrame(lightRAF);
+        const from={godExp:GOD.exposure,godWt:GOD.weight,godGate:GOD.gateLo,emis:getEmis(),bloomS:BLOOM.strength}, t0=performance.now();
+        (function step(){
+          const k=Math.min(1,(performance.now()-t0)/ms), e=ease(k);
+          GOD.exposure=lerp(from.godExp,to.godExp,e); GOD.weight=lerp(from.godWt,to.godWt,e); GOD.gateLo=lerp(from.godGate,to.godGate,e);
+          BLOOM.strength=lerp(from.bloomS,to.bloomS,e); setEmis(lerp(from.emis,to.emis,e));
+          lightRAF = k<1 ? requestAnimationFrame(step) : null;
+        })();
+      }
+      window.__tweenCam=tweenCam; window.__tweenLight=tweenLight;
+
+      // resting frame = FACE (overrides applyPortraitFraming / the heart block's __cam)
+      window.__cam = { px:CAMRIG.face.px, py:CAMRIG.face.py, pz:CAMRIG.face.pz, tx:CAMRIG.face.tx, ty:CAMRIG.face.ty, tz:CAMRIG.face.tz };
+      camera.fov = CAMRIG.face.fov; window.__restFov = CAMRIG.face.fov; camera.updateProjectionMatrix();
+
+      let returnTimer=null, isWide=false;
+      function gestureCamera(durSec){
+        durSec=(typeof durSec==="number"&&durSec>0)?durSec:4;
+        if(!isWide){ isWide=true; tweenCam(CAMRIG.wide, CAMRIG.outMs); if(LIGHTSWELL.on) tweenLight(LIGHTSWELL.swell, CAMRIG.outMs); }
+        if(returnTimer) clearTimeout(returnTimer);
+        returnTimer=setTimeout(()=>{ isWide=false; tweenCam(CAMRIG.face, CAMRIG.inMs); if(LIGHTSWELL.on) tweenLight(LIGHTSWELL.close, CAMRIG.inMs); returnTimer=null; }, durSec*1000 + CAMRIG.hold);
+      }
+      window.__gestureCamera=gestureCamera;
+
+      // hook playGesture: ease out on a real gesture; skip the rapid sub-taps / tuner micro-holds (transition <200ms)
+      const _play = head.playGesture.bind(head);
+      head.playGesture = function(name, dur, mirror, transMs){
+        if(CAMRIG.on && (transMs==null || transMs>=200)) gestureCamera(dur);
+        return _play(name, dur, mirror, transMs);
+      };
+    })();
+    /* =================== end AUTO-CAMERA + LIGHTING SWELL =================== */
 
       } catch (gradeErr) {
         console.error("[avatar] render layer failed; rendering raw avatar:", gradeErr);
