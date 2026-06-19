@@ -95,7 +95,9 @@ export function applyVoiceParams(head, p) {
   fx.shaper.curve = satCurve(p.sat);
   fx.bp.frequency.value = p.bpFreq; fx.bp.Q.value = p.bpQ ?? 0.8;
   fx.wet.gain.value = p.wet;
-  head.audioReverbNode.buffer = makeIR(ctx, p.revLen, p.revAmt);
+  // Respect a measured impulse loaded via speech-realism.js loadReverbIR(): don't overwrite it with
+  // the synthetic tail just because an FX slider moved. clearReverbIR() flips this back.
+  if (!head.__irLoaded) head.audioReverbNode.buffer = makeIR(ctx, p.revLen, p.revAmt);
 }
 
 // Apply the TTS request params a preset MAY carry (ttsPitch/ttsRate/ttsVoice) onto head.avatar, so

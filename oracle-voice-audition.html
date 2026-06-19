@@ -33,13 +33,22 @@
     <h1>Oracle voice audition</h1>
 
     <h2>Voice (server-side · free on Pi)</h2>
-    <label for="voice">Voice <span class="hint">en-US female · all honor pitch</span></label>
+    <label for="voice">Voice <span class="hint">en-US female · all honor pitch + timepoints</span></label>
     <select id="voice">
-      <option value="en-US-Standard-C" selected>en-US-Standard-C — measured, institutional</option>
-      <option value="en-US-Standard-E">en-US-Standard-E — warmer, rounder</option>
-      <option value="en-US-Standard-F">en-US-Standard-F — brighter, clerical</option>
-      <option value="en-US-Standard-G">en-US-Standard-G — mature, administrative</option>
-      <option value="en-US-Standard-H">en-US-Standard-H — lighter, crisp</option>
+      <optgroup label="Standard — free allotment">
+        <option value="en-US-Standard-C" selected>en-US-Standard-C — measured, institutional</option>
+        <option value="en-US-Standard-E">en-US-Standard-E — warmer, rounder</option>
+        <option value="en-US-Standard-F">en-US-Standard-F — brighter, clerical</option>
+        <option value="en-US-Standard-G">en-US-Standard-G — mature, administrative</option>
+        <option value="en-US-Standard-H">en-US-Standard-H — lighter, crisp</option>
+      </optgroup>
+      <optgroup label="WaveNet — warmer/more natural (~$0 at kiosk volume)">
+        <option value="en-US-Wavenet-C">en-US-Wavenet-C — warmer twin of Standard-C</option>
+        <option value="en-US-Wavenet-E">en-US-Wavenet-E — warm, rounded</option>
+        <option value="en-US-Wavenet-F">en-US-Wavenet-F — clear, clerical</option>
+        <option value="en-US-Wavenet-G">en-US-Wavenet-G — mature, grave</option>
+        <option value="en-US-Wavenet-H">en-US-Wavenet-H — lighter, present</option>
+      </optgroup>
     </select>
     <label for="pitch">Pitch (semitones) <output id="pitch_o">-5</output></label>
     <input id="pitch" type="range" min="-12" max="8" step="0.5" value="-5">
@@ -57,6 +66,12 @@
       <option value="oracle">oracle — fullest sacred-bureaucratic</option>
     </select>
     <div id="fx"></div>
+    <label for="ir" style="margin-top:10px">Reverb impulse <span class="hint">load a real chapel IR (wav/mp3)</span></label>
+    <input id="ir" type="file" accept="audio/*,.wav,.mp3,.ogg" style="font-size:11px;color:#b6a880">
+    <div class="btns" style="margin-top:6px"><button id="irclear" class="sec">Clear IR (back to synthetic)</button></div>
+
+    <h2>Realism — mouth + face <span class="hint">hieratic-safe (no head motion)</span></h2>
+    <div id="realism"></div>
 
     <div class="btns">
       <button id="speak" disabled>Speak</button>
@@ -67,8 +82,18 @@
     <div id="dump"></div>
     <div class="btns"><button id="copy" class="sec">Copy settings</button></div>
 
-    <label for="text" style="margin-top:14px">Sample absolution</label>
-    <textarea id="text">You have come before the Office of Algorithmic Absolution. Your confession has been received and tabulated. For the harm of taking more than you needed, the system prescribes an offset of forty units, payable in deeds. For benefiting from labor you did not fairly compensate, a further charge is assessed and recorded against your account. For the advantage you inherited and did not earn, the ledger is adjusted accordingly. These debts are noted, weighed, and filed. Your absolution has been processed. Go now, and let your account reflect the balance restored.</textarea>
+    <h2>Prosody — spoken text</h2>
+    <label for="demo">Demo line <span class="hint">cadenced, with — em-dash breaks</span></label>
+    <select id="demo">
+      <option value="">— sample lines —</option>
+      <option value="cadence">Cadenced absolution (commas + em-dashes)</option>
+      <option value="short">Short, grave ruling</option>
+      <option value="numbers">Numbers &amp; abbrevs (test the cleaner)</option>
+      <option value="readback">Read-back preamble</option>
+    </select>
+    <label for="clean" style="margin-top:8px"><span><input type="checkbox" id="clean"> Apply speech cleaner</span> <span class="hint">digits→words, St.→Saint, — breaks</span></label>
+    <label for="text" style="margin-top:8px">Text to speak</label>
+    <textarea id="text">You have come before the Office of Algorithmic Absolution. Your declaration has been received — and weighed. The harm you have named is acknowledged, recorded, and answered. By this ruling, you are absolved. Go now — and let your account reflect the balance restored. No record is kept.</textarea>
   </div>
   <div id="status">Loading…</div>
 
@@ -83,13 +108,17 @@
   <script type="module">
     import { TalkingHead } from "talkinghead";
     import { installVoiceFX, applyVoiceParams, applyTtsParams, VOICE_PRESETS } from "./voice-fx.js";
+    import { REALISM_DEFAULTS, speakShaped, installAudioFacial, setAffect, loadReverbIR, clearReverbIR, cleanForSpeechClient, preSpeechSettle } from "./speech-realism.js";
 
     const $ = (id) => document.getElementById(id);
     const setStatus = (m) => { $("status").textContent = m; };
-    const avatarUrl = window.TALKINGHEAD_AVATAR_URL || "docs/base/oracle-icon-heart.glb?v=17";
+    const avatarUrl = window.TALKINGHEAD_AVATAR_URL || "docs/base/oracle-icon-heart.glb?v=20";
 
     // Live FX parameter state — starts on the shipping "clear" production voice.
     const P = { ...VOICE_PRESETS.clear };
+    // Live speech-realism state (mouth + face). Copied so sliders mutate it, then passed to speakShaped.
+    const R = { ...REALISM_DEFAULTS };
+    let facial = null; // audio-coupled facial controller (installed after the avatar loads)
 
     // FX sliders, generated from this spec (voice/pitch/rate handled separately above).
     // Ranges are deliberately EXTREME — pull back to taste; production bakes whatever you settle on.
@@ -126,9 +155,73 @@
     const fmt = (v) => (Number.isInteger(v) ? v : v.toFixed(2));
     function syncSliders() { for (const c of FX_CTRLS) { $(c.k).value = P[c.k]; $(c.k + "_o").value = fmt(P[c.k]); } }
 
+    // Realism controls (mouth + face). Mutate R live; re-push opts to the audio-coupled controller
+    // and re-apply the affect baseline immediately so tuning is audible/visible without re-speaking.
+    const REALISM_CTRLS = [
+      { k: "visemeLevel", label: "Viseme intensity (0.6 = lib default)", type: "range", min: 0.6, max: 1.0, step: 0.01 },
+      { k: "closureBoost", label: "Crisp lip closures (PP/FF)", type: "check" },
+      { k: "adaptive", label: "Duration-adaptive intensity (held vowels open more)", type: "check" },
+      { k: "adaptiveAmt", label: "· adaptive amount", type: "range", min: 0, max: 0.4, step: 0.01 },
+      { k: "jawMode", label: "Jaw motion", type: "select", opts: [["viseme", "viseme-coupled (recommended)"], ["audio", "loudness"], ["off", "off"]] },
+      { k: "jawCouple", label: "· jaw depth (viseme mode)", type: "range", min: 0, max: 0.5, step: 0.01 },
+      { k: "audioFacial", label: "Audio-coupled brow", type: "check" },
+      { k: "browAmt", label: "· brow amount", type: "range", min: 0, max: 0.4, step: 0.01 },
+      { k: "browAsym", label: "· brow asymmetry (L/R)", type: "range", min: 0, max: 1, step: 0.05 },
+      { k: "jawAmt", label: "· jaw amount (loudness mode)", type: "range", min: 0, max: 0.4, step: 0.01 },
+      { k: "gain", label: "· loudness sensitivity", type: "range", min: 0.3, max: 3, step: 0.05 },
+      { k: "gapBlink", label: "Blink at pauses (clause/sentence gaps)", type: "check" },
+      { k: "saccade", label: "Eye micro-movement (saccades)", type: "check" },
+      { k: "saccadeAmt", label: "· saccade amount", type: "range", min: 0, max: 0.12, step: 0.005 },
+      { k: "gazeDown", label: "Gaze-down at sentence ends", type: "check" },
+      { k: "gazeDownAmt", label: "· gaze-down amount", type: "range", min: 0, max: 0.15, step: 0.005 },
+      { k: "preBreath", label: "Pre-speech settle (breath beat)", type: "check" },
+      { k: "preBreathMs", label: "· settle length (ms)", type: "range", min: 0, max: 900, step: 50 },
+      { k: "affect", label: "Solemn affect baseline", type: "check" },
+      { k: "affectBrow", label: "· affect brow lift", type: "range", min: 0, max: 0.3, step: 0.01 },
+    ];
+    function onRealismChange() {
+      if (facial) facial.setOpts(R);
+      setAffect(head, R.affect, R);   // live baseline preview
+      refreshDump();
+    }
+    function addRealismRow(c) {
+      const lab = document.createElement("label");
+      if (c.type === "check") {
+        const inp = document.createElement("input");
+        inp.type = "checkbox"; inp.id = c.k; inp.checked = !!R[c.k];
+        inp.onchange = () => { R[c.k] = inp.checked; onRealismChange(); };
+        const wrap = document.createElement("span"); wrap.style.display = "flex"; wrap.style.gap = "6px"; wrap.style.alignItems = "center";
+        wrap.append(inp, document.createTextNode(c.label));
+        lab.appendChild(wrap); $("realism").append(lab);
+      } else if (c.type === "select") {
+        lab.textContent = c.label;
+        const sel = document.createElement("select"); sel.id = c.k;
+        for (const [v, t] of c.opts) { const o = document.createElement("option"); o.value = v; o.textContent = t; if (R[c.k] === v) o.selected = true; sel.appendChild(o); }
+        sel.onchange = () => { R[c.k] = sel.value; onRealismChange(); };
+        $("realism").append(lab, sel);
+      } else {
+        const out = document.createElement("output"); out.id = c.k + "_o"; out.value = fmt(R[c.k]);
+        lab.textContent = c.label; lab.appendChild(out);
+        const inp = document.createElement("input");
+        inp.type = "range"; inp.id = c.k; inp.min = c.min; inp.max = c.max; inp.step = c.step; inp.value = R[c.k];
+        inp.oninput = () => { R[c.k] = parseFloat(inp.value); out.value = fmt(R[c.k]); onRealismChange(); };
+        $("realism").append(lab, inp);
+      }
+    }
+    for (const c of REALISM_CTRLS) addRealismRow(c);
+    // ttsTrimEnd lives on head.opt (not R): trailing-silence trim in ms. At rate 0.80 the 400ms default
+    // can clip the final viseme; lower it to hold the last mouth shape out to the end of the audio.
+    (() => {
+      const lab = document.createElement("label"); lab.textContent = "Trim end (ms) — last-viseme clip fix";
+      const out = document.createElement("output"); out.id = "ttsTrimEnd_o"; out.value = head.opt.ttsTrimEnd; lab.appendChild(out);
+      const inp = document.createElement("input"); inp.type = "range"; inp.id = "ttsTrimEnd"; inp.min = 0; inp.max = 600; inp.step = 10; inp.value = head.opt.ttsTrimEnd;
+      inp.oninput = () => { head.opt.ttsTrimEnd = parseFloat(inp.value); out.value = inp.value; refreshDump(); };
+      $("realism").append(lab, inp);
+    })();
+
     function settings() {
       return { ttsLang: "en-US", ttsVoice: $("voice").value, ttsPitch: parseFloat($("pitch").value),
-        ttsRate: parseFloat($("rate").value), preset: $("preset").value, fx: { ...P } };
+        ttsRate: parseFloat($("rate").value), preset: $("preset").value, ttsTrimEnd: head.opt.ttsTrimEnd, fx: { ...P }, realism: { ...R } };
     }
     function refreshDump() { $("dump").textContent = JSON.stringify(settings(), null, 2); }
 
@@ -139,6 +232,8 @@
           ttsLang: "en-US", ttsVoice: VOICE_PRESETS.clear.ttsVoice, ttsPitch: VOICE_PRESETS.clear.ttsPitch, ttsRate: VOICE_PRESETS.clear.ttsRate, lipsyncLang: "en",
         }, (ev) => { if (ev.lengthComputable) setStatus(`Loading ${Math.round(ev.loaded / ev.total * 100)}%`); });
         installVoiceFX(head); applyVoiceParams(head, P);
+        facial = installAudioFacial(head, R);   // audio-coupled brow/jaw + gap-blinks (no head motion)
+        setAffect(head, R.affect, R);           // solemn baseline preview
         syncSliders(); refreshDump();
         setStatus("Ready. Tune, then Speak.");
         $("speak").disabled = false;
@@ -161,17 +256,42 @@
       syncSliders(); refreshDump();
     };
 
+    // Reverb impulse-response loader: audition a real chapel IR in the convolver (overrides the
+    // synthetic tail until cleared). voice-fx.js skips makeIR while head.__irLoaded is set.
+    $("ir").onchange = async (e) => {
+      const f = e.target.files && e.target.files[0]; if (!f) return;
+      try {
+        const dur = await loadReverbIR(head, await f.arrayBuffer());
+        setStatus(`Loaded IR: ${f.name} (${dur.toFixed(2)}s). Reverb sliders now bypassed.`);
+      } catch (err) { setStatus("IR load failed: " + err); console.error(err); }
+    };
+    $("irclear").onclick = () => { clearReverbIR(head); applyVoiceParams(head, P); setStatus("IR cleared — synthetic reverb restored."); };
+
+    // Demo lines (cadenced, with — em-dash breaks).
+    const DEMO = {
+      cadence: "You have come before the Office of Algorithmic Absolution. Your declaration has been received — and weighed. The harm you have named is acknowledged, recorded, and answered. By this ruling, you are absolved. Go now — and let your account reflect the balance restored. No record is kept.",
+      short: "Declaration received. The harm you have named is acknowledged — and answered. By this ruling, you are absolved. No record is kept.",
+      numbers: "Form 1517-A is received. For the harm declared, an offset of 40 units is assessed — payable to St. Jude. No record is kept.",
+      readback: "Your card has been received, and is being processed. You have declared the following — taking more than needed, and benefiting from underpaid labor.",
+    };
+    $("demo").onchange = (e) => { const v = DEMO[e.target.value]; if (v) $("text").value = v; };
+    $("clean").onchange = () => { if ($("clean").checked) $("text").value = cleanForSpeechClient($("text").value); };
+
     $("speak").onclick = async () => {
-      const t = $("text").value.trim(); if (!t) return;
+      let t = $("text").value.trim(); if (!t) return;
       try {
         if (head.audioCtx?.state === "suspended") await head.audioCtx.resume();
+        if ($("clean").checked) t = cleanForSpeechClient(t);
         head.avatar.ttsLang = "en-US";
         head.avatar.ttsVoice = $("voice").value;
         head.avatar.ttsPitch = parseFloat($("pitch").value);
         head.avatar.ttsRate  = parseFloat($("rate").value);
         applyVoiceParams(head, P);
-        setStatus(`Speaking · ${$("voice").value} · pitch ${$("pitch").value} · rate ${$("rate").value}`);
-        head.speakText(t);
+        if (facial) facial.setOpts(R);
+        setAffect(head, R.affect, R);
+        if (R.preBreath) { setStatus("…drawing breath"); await preSpeechSettle(head, R); }
+        setStatus(`Speaking · ${$("voice").value} · pitch ${$("pitch").value} · rate ${$("rate").value} · visemes ${R.visemeLevel}`);
+        speakShaped(head, t, R);   // shaped visemes + (audio-coupled face runs continuously)
       } catch (err) { setStatus("Speak failed: " + err); console.error(err); }
     };
     $("stop").onclick = () => { try { head.stopSpeaking(); } catch (e) {} setStatus("Stopped."); };
