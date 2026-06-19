@@ -9,6 +9,7 @@
     width: 100%;
     height: 100%;
     margin: 0;
+    overflow: hidden;
     background: #202020;
     color: #fff;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
@@ -805,7 +806,25 @@
     })();
     function sizeAll(){ const wd=avatarEl.clientWidth, ht=avatarEl.clientHeight;
       composer.setSize(wd,ht); gradePass.uniforms.res.value.set(wd,ht);
-      bloomPass.setSize(Math.max(1,wd>>1), Math.max(1,ht>>1)); }
+      bloomPass.setSize(Math.max(1,wd>>1), Math.max(1,ht>>1)); applyPortraitFraming(); }
+    function applyPortraitFraming(){
+      if (!isProduction) return;
+      const w = avatarEl.clientWidth, h = avatarEl.clientHeight;
+      if (!w || !h) return;
+      const portrait = h > w || new URLSearchParams(location.search).has("portrait");
+      if (portrait) {
+        // Torso crop: navel (~y 1.01) through halo disc top (~y 2.05). Telephoto + closer than landscape.
+        const ty = 1.58;
+        camera.fov = 9.0; camera.position.set(0, ty, 6.2); camera.lookAt(0, ty, 0);
+        window.__cam = { px:0, py:ty, pz:6.2, tx:0, ty, tz:0 };
+        window.__restFov = 9.0;
+      } else {
+        camera.fov = 8; camera.position.set(0, 1.66, 7.0); camera.lookAt(0, 1.66, 0);
+        window.__cam = { px:0, py:1.66, pz:7.0, tx:0, ty:1.66, tz:0 };
+        window.__restFov = 8;
+      }
+      camera.updateProjectionMatrix();
+    }
     sizeAll(); window.addEventListener("resize", sizeAll);
 
     head.render = function(){
@@ -991,7 +1010,7 @@
     function playWide(name, dur, fov){
       camFov(fov, 900);
       head.playGesture(name, dur, false, 900);
-      setTimeout(()=> camFov(8, 900), (dur-0.9)*1000);   // return to the resting heart-up lens (matches line ~402)
+      setTimeout(()=> camFov(window.__restFov ?? 8, 900), (dur-0.9)*1000);   // return to resting lens (portrait or landscape)
     }
     head.gestureTemplates["speak"] = {
       "RightShoulder.rotation":{x:1.758,y:0.099,z:1.604}, "RightArm.rotation":{x:1.10,y:-0.30,z:-0.80},
@@ -1127,7 +1146,7 @@
       // The heart is now a node inside the avatar GLB, parented to the Spine2 bone and seated in a chest
       // socket — so it follows every pose/gesture/breath through the rig (no per-frame repositioning needed).
       // This block only (a) pins the framing and (b) drives the furnace glow / heartbeat off the painted texture.
-      window.__cam = { px:0, py:1.66, pz:7.0, tx:0, ty:1.66, tz:0 };   // heart-up framing nudged back to pz 7.0 (was 6.10) so the full gesture range stays in frame; matches the oracle-leveled-preview tuning lens (fov 8)
+      applyPortraitFraming();
       if (head.controls) head.controls.enabled = false;
       const EMIS = window.__heartEmis = { base:1.0, beat:1.0, flick:0.12 };
       const mats = window.__heartMats = [];   // baked-heart materials we drive for the heartbeat glow

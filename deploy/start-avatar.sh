@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Start the TTS proxy and launch the presentation (oracle kiosk + punch-card form).
 # Intended for Raspberry Pi 5 (oracle-only via AVATAR_ORACLE_ONLY=1); also for local showcase demos.
+# On Windows, use deploy/start-avatar.ps1 instead (requires PowerShell; no bash/WSL needed).
 
 set -euo pipefail
 

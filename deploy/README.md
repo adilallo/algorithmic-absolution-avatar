@@ -16,10 +16,22 @@ Tracks [ALG-6](https://linear.app/algorithmic-absolution/issue/ALG-6/configure-p
 
 From the repo root:
 
+**macOS / Linux / Pi:**
+
 ```bash
 chmod +x deploy/start-avatar.sh
 ./deploy/start-avatar.sh
 ```
+
+**Windows (PowerShell):**
+
+```powershell
+.\deploy\start-avatar.ps1
+```
+
+Opens **windowed** (not kiosk) so you can close/move windows during local testing. Default placement: form on screen 0, oracle on screen 1. Override with `AVATAR_FORM_SCREEN` / `AVATAR_ORACLE_SCREEN` (0-based; the script prints your monitor list on launch). Pi-style fullscreen: `$env:AVATAR_KIOSK = "1"`.
+
+Oracle-only on Windows: `$env:AVATAR_ORACLE_ONLY = "1"; .\deploy\start-avatar.ps1`
 
 This starts the TTS proxy (if needed) and opens **both** presentation windows:
 
