@@ -125,6 +125,20 @@
     import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
     import { OutputPass }      from "three/addons/postprocessing/OutputPass.js";
     import { installVoiceFX, applyVoiceParams, applyTtsParams, VOICE_PRESETS } from "./voice-fx.js";
+    import { speakShaped, installAudioFacial, setAffect, preSpeechSettle, loadReverbIR, cleanForSpeechClient } from "./speech-realism.js";
+
+    // PROD realism config — locked 2026-06-20 from the audition lab. Drives the shaped visemes +
+    // viseme-coupled jaw (speakShaped) and the audio-coupled facial layer + pre-speech settle
+    // (installAudioFacial / preSpeechSettle). Eyes/brow/jaw move; NO head motion (hieratic-safe).
+    const PROD_REALISM = {
+      visemeLevel: 0.85, closureBoost: true, adaptive: true, adaptiveAmt: 0.3,
+      jawMode: "viseme", jawCouple: 0.06,
+      audioFacial: true, browAmt: 0.16, browAsym: 0.3, jawAmt: 0.12, gain: 1, gapBlink: true,
+      saccade: true, saccadeAmt: 0.045, gazeDown: true, gazeDownAmt: 0.06,
+      preBreath: true, preBreathMs: 450,
+      affect: true, affectBrow: 0.1, affectFrown: 0.07,
+    };
+    let __facial = null;   // audio-coupled facial controller (installed after the avatar loads)
 
     const isProduction =
       window.TALKINGHEAD_PRODUCTION === true ||
@@ -338,13 +352,17 @@
 
       // Speech is the production contract; wire it before the cosmetic render layer.
       window.avatarSpeak = async (text) => {
-        const t = String(text ?? "").trim();
+        let t = String(text ?? "").trim();
         if (!t) return;
         try {
           await __audioReady;
           await ensureAudioUnlocked();
           ensureVoiceFX();
-          head.speakText(t);
+          t = cleanForSpeechClient(t);   // digits->words, St.->Saint, isolate em-dashes (promoted from the lab)
+          // Pre-speech settle (breath beat) only when starting fresh — never mid-utterance (it would
+          // interrupt an ongoing read-back when the absolution is appended after it).
+          if (PROD_REALISM.preBreath && !head.isSpeaking) await preSpeechSettle(head, PROD_REALISM);
+          speakShaped(head, t, PROD_REALISM);   // shaped visemes + viseme-coupled jaw (audio-coupled face runs continuously)
         }
         catch (err) {
           console.error("[avatar] speak failed:", err);
@@ -448,6 +466,20 @@
       // Optional fine-tune from the console (e.g. window.ORACLE_VOICE_SET({ revAmt: 0.5 })).
       window.ORACLE_VOICE_SET = (patch) => { Object.assign(voiceParams, patch); applyVoiceParams(head, voiceParams); };
       ensureVoiceFX(); // install now so the default preset is live before the first utterance
+
+      // Speech-realism layer (locked 2026-06-20). Placed BEFORE the render-layer try so it survives a
+      // render-layer failure (speech + face still work). The audio-coupled facial loop runs continuously;
+      // setAffect's resting baseline is applied AFTER the hieratic idle's setMood (below) so it isn't wiped.
+      __facial = installAudioFacial(head, PROD_REALISM);
+      // Load the dialed-in chapel impulse into the convolver (clear preset's revLen 1.5 trims it). The
+      // reverb sliders/master stage still apply via applyVoiceParams; __irRaw survives graph rebuilds.
+      (async () => {
+        try {
+          const ir = await fetch("docs/base/IR.wav");
+          if (ir.ok) { await loadReverbIR(head, await ir.arrayBuffer()); applyVoiceParams(head, voiceParams); }
+          else console.warn("[avatar] reverb IR missing at docs/base/IR.wav");
+        } catch (e) { console.warn("[avatar] reverb IR load failed:", e); }
+      })();
 
       // The full leveled-preview look. Isolated try/catch: a render-layer failure
       // degrades to the raw avatar with working speech rather than a black screen.
@@ -965,6 +997,10 @@
         Neck:   head.scene.getObjectByName('Neck'),   Head:   head.scene.getObjectByName('Head'),
       };
     })();
+
+    // Solemn affect resting baseline — applied AFTER setupHieraticIdle's setMood (setMood rebuilds all
+    // baselines, which would otherwise wipe this). The audio-coupled loop layers brow on top during speech.
+    setAffect(head, PROD_REALISM.affect, PROD_REALISM);
 
     // Optional: drop in a real downloaded Mixamo idle FBX (e.g. "Breathing Idle" / "Praying", exported
     // "without skin") and loop it on the rig instead of the procedural idle above. Asset not bundled.

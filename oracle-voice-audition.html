@@ -42,12 +42,19 @@
         <option value="en-US-Standard-G">en-US-Standard-G — mature, administrative</option>
         <option value="en-US-Standard-H">en-US-Standard-H — lighter, crisp</option>
       </optgroup>
-      <optgroup label="WaveNet — warmer/more natural (~$0 at kiosk volume)">
+      <optgroup label="WaveNet — warmer/more natural (4M/mo free)">
         <option value="en-US-Wavenet-C">en-US-Wavenet-C — warmer twin of Standard-C</option>
         <option value="en-US-Wavenet-E">en-US-Wavenet-E — warm, rounded</option>
         <option value="en-US-Wavenet-F">en-US-Wavenet-F — clear, clerical</option>
         <option value="en-US-Wavenet-G">en-US-Wavenet-G — mature, grave</option>
         <option value="en-US-Wavenet-H">en-US-Wavenet-H — lighter, present</option>
+      </optgroup>
+      <optgroup label="Neural2 — most natural that keeps lip-sync (1M/mo free, then $16/1M)">
+        <option value="en-US-Neural2-C">en-US-Neural2-C — measured</option>
+        <option value="en-US-Neural2-E">en-US-Neural2-E — warm</option>
+        <option value="en-US-Neural2-F">en-US-Neural2-F — clear</option>
+        <option value="en-US-Neural2-G">en-US-Neural2-G — grave</option>
+        <option value="en-US-Neural2-H">en-US-Neural2-H — present</option>
       </optgroup>
     </select>
     <label for="pitch">Pitch (semitones) <output id="pitch_o">-5</output></label>
@@ -66,7 +73,7 @@
       <option value="oracle">oracle — fullest sacred-bureaucratic</option>
     </select>
     <div id="fx"></div>
-    <label for="ir" style="margin-top:10px">Reverb impulse <span class="hint">load a real chapel IR (wav/mp3)</span></label>
+    <label for="ir" style="margin-top:10px">Reverb impulse <span class="hint">chapel IR — amount + length sliders still apply</span></label>
     <input id="ir" type="file" accept="audio/*,.wav,.mp3,.ogg" style="font-size:11px;color:#b6a880">
     <div class="btns" style="margin-top:6px"><button id="irclear" class="sec">Clear IR (back to synthetic)</button></div>
 
@@ -114,10 +121,22 @@
     const setStatus = (m) => { $("status").textContent = m; };
     const avatarUrl = window.TALKINGHEAD_AVATAR_URL || "docs/base/oracle-icon-heart.glb?v=20";
 
-    // Live FX parameter state — starts on the shipping "clear" production voice.
-    const P = { ...VOICE_PRESETS.clear };
+    // LAB DEFAULTS — andy's dialed-in starting point (2026-06-20). The lab opens on these so reloads keep
+    // them. This is LAB-ONLY; production (index.html / VOICE_PRESETS.clear) is untouched until promoted.
+    const LAB_DEFAULTS = {
+      ttsVoice: "en-US-Neural2-C", ttsPitch: -6, ttsRate: 0.8, ttsTrimEnd: 400, irUrl: "docs/base/IR.wav", cleaner: true,
+      fx: { hp: 150, warm: -1, dip: 1, sat: 0, wet: 0, bpFreq: 200, bpQ: 0.3, revAmt: 0.05, revLen: 1.5,
+        vol: 1.0, compThresh: -20, compRatio: 3 },
+      realism: { visemeLevel: 0.85, closureBoost: true, adaptive: true, adaptiveAmt: 0.3, jawMode: "viseme",
+        jawCouple: 0.06, audioFacial: true, browAmt: 0.16, browAsym: 0.3, jawAmt: 0.12, gain: 1, gapBlink: true,
+        saccade: true, saccadeAmt: 0.045, gazeDown: true, gazeDownAmt: 0.06, preBreath: true, preBreathMs: 450,
+        affect: true, affectBrow: 0.1, affectFrown: 0.07 },
+    };
+
+    // Live FX parameter state — starts on the shipping "clear" voice, then overridden by LAB_DEFAULTS.
+    const P = { ...VOICE_PRESETS.clear, ...LAB_DEFAULTS.fx };
     // Live speech-realism state (mouth + face). Copied so sliders mutate it, then passed to speakShaped.
-    const R = { ...REALISM_DEFAULTS };
+    const R = { ...REALISM_DEFAULTS, ...LAB_DEFAULTS.realism };
     let facial = null; // audio-coupled facial controller (installed after the avatar loads)
 
     // FX sliders, generated from this spec (voice/pitch/rate handled separately above).
@@ -132,6 +151,9 @@
       { k: "bpQ",    label: "Transmission Q (sharpness)", min: 0.3, max: 14, step: 0.1 },
       { k: "revAmt", label: "Reverb amount",           min: 0,   max: 1.5,  step: 0.05 },
       { k: "revLen", label: "Reverb length (s)",       min: 0.05, max: 3.0, step: 0.05 },
+      { k: "vol",        label: "Master volume",             min: 0,   max: 2,  step: 0.05 },
+      { k: "compThresh", label: "Compressor threshold (dB)", min: -60, max: 0,  step: 1 },
+      { k: "compRatio",  label: "Compressor ratio (1 = off)", min: 1,  max: 20, step: 0.5 },
     ];
 
     const head = new TalkingHead($("avatar"), {
@@ -231,11 +253,29 @@
           url: avatarUrl, body: "F", avatarMood: "neutral",
           ttsLang: "en-US", ttsVoice: VOICE_PRESETS.clear.ttsVoice, ttsPitch: VOICE_PRESETS.clear.ttsPitch, ttsRate: VOICE_PRESETS.clear.ttsRate, lipsyncLang: "en",
         }, (ev) => { if (ev.lengthComputable) setStatus(`Loading ${Math.round(ev.loaded / ev.total * 100)}%`); });
+        // Apply the LAB_DEFAULTS voice/pitch/rate/trim to the controls + avatar.
+        $("voice").value = LAB_DEFAULTS.ttsVoice;
+        $("pitch").value = LAB_DEFAULTS.ttsPitch; $("pitch_o").value = LAB_DEFAULTS.ttsPitch;
+        $("rate").value = LAB_DEFAULTS.ttsRate;   $("rate_o").value = LAB_DEFAULTS.ttsRate;
+        head.opt.ttsTrimEnd = LAB_DEFAULTS.ttsTrimEnd;
+        if ($("ttsTrimEnd")) { $("ttsTrimEnd").value = LAB_DEFAULTS.ttsTrimEnd; $("ttsTrimEnd_o").value = LAB_DEFAULTS.ttsTrimEnd; }
+        $("clean").checked = !!LAB_DEFAULTS.cleaner;   // speech cleaner on by default
+        head.avatar.ttsLang = "en-US";
+        head.avatar.ttsVoice = LAB_DEFAULTS.ttsVoice; head.avatar.ttsPitch = LAB_DEFAULTS.ttsPitch; head.avatar.ttsRate = LAB_DEFAULTS.ttsRate;
+
         installVoiceFX(head); applyVoiceParams(head, P);
         facial = installAudioFacial(head, R);   // audio-coupled brow/jaw + gap-blinks (no head motion)
         setAffect(head, R.affect, R);           // solemn baseline preview
+
+        // Auto-load the dialed-in reverb impulse so the lab opens with the same reverb (revAmt/revLen apply).
+        try {
+          const ir = await fetch(LAB_DEFAULTS.irUrl);
+          if (ir.ok) { await loadReverbIR(head, await ir.arrayBuffer()); applyVoiceParams(head, P); }
+          else console.warn("[lab] IR not found at", LAB_DEFAULTS.irUrl);
+        } catch (e) { console.warn("[lab] IR autoload failed:", e); }
+
         syncSliders(); refreshDump();
-        setStatus("Ready. Tune, then Speak.");
+        setStatus("Ready (lab defaults + IR loaded). Tune, then Speak.");
         $("speak").disabled = false;
       } catch (err) { setStatus("Load failed: " + err); console.error(err); }
     })();
@@ -262,7 +302,11 @@
       const f = e.target.files && e.target.files[0]; if (!f) return;
       try {
         const dur = await loadReverbIR(head, await f.arrayBuffer());
-        setStatus(`Loaded IR: ${f.name} (${dur.toFixed(2)}s). Reverb sliders now bypassed.`);
+        // default the length to the IR's full tail so you hear all of it; trim with the Reverb length slider.
+        P.revLen = Math.min(parseFloat($("revLen").max), dur);
+        $("revLen").value = P.revLen; $("revLen_o").value = fmt(P.revLen);
+        applyVoiceParams(head, P);   // Reverb amount + length now SHAPE the loaded IR
+        setStatus(`Loaded IR: ${f.name} (${dur.toFixed(2)}s). Reverb amount + length now control it.`);
       } catch (err) { setStatus("IR load failed: " + err); console.error(err); }
     };
     $("irclear").onclick = () => { clearReverbIR(head); applyVoiceParams(head, P); setStatus("IR cleared — synthetic reverb restored."); };

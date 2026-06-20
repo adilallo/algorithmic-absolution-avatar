@@ -30,7 +30,7 @@ export const REALISM_DEFAULTS = {
   adaptiveAmt: 0.30,   // extra openness a fully-held viseme gets above visemeLevel (capped at 1.0)
   jawMode: 'viseme',   // jaw motion source: 'viseme' (opens with open vowels -> reads as speech, RECOMMENDED)
                        //   | 'audio' (raw loudness -> can look chewy on consonants) | 'off'
-  jawCouple: 0.22,     // jawOpen depth coupled to open vowels when jawMode === 'viseme'
+  jawCouple: 0.06,     // jawOpen depth coupled to open vowels when jawMode === 'viseme'
   // --- audio-coupled face ---
   audioFacial: true,
   browAmt: 0.16,       // max additive browInnerUp at full speech loudness
@@ -256,11 +256,11 @@ export function setAffect(head, on, R = REALISM_DEFAULTS) {
 // won't clobber it on the next slider move (see voice-fx.js).
 export async function loadReverbIR(head, arrayBuffer) {
   const buf = await head.audioCtx.decodeAudioData(arrayBuffer.slice(0));
-  if (head.audioReverbNode) head.audioReverbNode.buffer = buf;
+  head.__irRaw = buf;          // raw IR — voice-fx applyVoiceParams() shapes it by revAmt/revLen
   head.__irLoaded = true;
-  return buf.duration;
+  return buf.duration;         // caller sets revLen + calls applyVoiceParams to build the convolver
 }
-export function clearReverbIR(head) { head.__irLoaded = false; }
+export function clearReverbIR(head) { head.__irLoaded = false; head.__irRaw = null; }
 
 // ---- Client mirror of the proposed absolution.js cleanForSpeech upgrades --------------------
 // Spelling out digits/abbreviations and isolating em-dashes is the highest-leverage prosody lever

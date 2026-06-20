@@ -48,14 +48,17 @@ const list = (v, d) => (v || d).split(',').map((s) => s.trim()).filter(Boolean);
 // Pin to the cheap Standard tier voices we actually ship. Blocks an attacker forcing
 // expensive Studio/WaveNet/Neural2 voices onto the bill.
 const ALLOWED_VOICES = list(process.env.TTS_ALLOWED_VOICES,
-  // en-US female voices. Standard = free allotment; WaveNet added for a warmer, more natural read.
-  // Both honor the server-side `pitch` semitone shift AND return <mark> word timepoints (required for
-  // lip-sync). WaveNet's free tier (~1M chars/mo, then $4/1M) is ~$0 at this kiosk's volume.
+  // en-US female voices, all of which honor the server-side `pitch` shift AND return <mark> word
+  // timepoints (required for lip-sync). Free tiers (current 2026): Standard 4M chars/mo, WaveNet 4M/mo
+  // (both $4/1M after); Neural2 1M/mo then $16/1M (a step up in naturalness, exits free faster — fine at
+  // this kiosk's low volume, guarded by TTS_DAILY_CHAR_CAP; note Neural2 has an intermittent empty-
+  // timepoint bug, verify on a multi-sentence line).
   // DELIBERATELY EXCLUDED (do not add): Studio voices reject <mark> timepoints (lip-sync silently
-  // breaks) and Chirp3-HD ERRORS on the pitch parameter AND returns no timepoints — either one kills
-  // the deepening trick and/or the lip-sync. Keep this list to Standard + WaveNet only.
+  // breaks) and Chirp3-HD ERRORS on the pitch parameter AND returns no timepoints — either kills the
+  // pitch trick and/or the lip-sync. Keep this list to Standard + WaveNet + Neural2 only.
   'en-US-Standard-C,en-US-Standard-E,en-US-Standard-F,en-US-Standard-G,en-US-Standard-H,' +
-  'en-US-Wavenet-C,en-US-Wavenet-E,en-US-Wavenet-F,en-US-Wavenet-G,en-US-Wavenet-H');
+  'en-US-Wavenet-C,en-US-Wavenet-E,en-US-Wavenet-F,en-US-Wavenet-G,en-US-Wavenet-H,' +
+  'en-US-Neural2-C,en-US-Neural2-E,en-US-Neural2-F,en-US-Neural2-G,en-US-Neural2-H');
 const ALLOWED_LANGS = list(process.env.TTS_ALLOWED_LANGS, 'en-GB,en-US');
 const MAX_INPUT_CHARS = parseInt(process.env.TTS_MAX_INPUT_CHARS || '2000', 10); // spoken chars per request
 const DAILY_CHAR_CAP = parseInt(process.env.TTS_DAILY_CHAR_CAP || '200000', 10); // billing backstop (resets UTC midnight). Raised from 50000: the 1800-char reads burn it ~3-4x faster. NOTE: still a real Google-TTS-billing guard — tune to the free tier for production.

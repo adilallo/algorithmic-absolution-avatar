@@ -28,10 +28,12 @@
 // applyTtsParams() writes them onto head.avatar so selecting the preset reproduces the full voice.
 // Only `clear` (the shipping voice) carries them today.
 export const VOICE_PRESETS = {
-  // SHIPPING production voice (dialed in by the artist): near-dry, warm, present — a close, intelligible
-  // read with only a hint of room. The one preset that carries its own ttsPitch/ttsRate/ttsVoice, so
-  // selecting it reproduces the full dialed-in sound. index.html ships this by default.
-  clear:        { hp: 75,  warm: 16, dip: 0,  sat: 0.0,  wet: 0.05, bpFreq: 2300, bpQ: 1.9, revAmt: 0.05, revLen: 0.25, ttsVoice: "en-US-Standard-C", ttsPitch: -5, ttsRate: 0.80 },
+  // SHIPPING production voice (dialed in by the artist, 2026-06-20): Neural2-C pitched -6, slow (0.80),
+  // high-passed and near-dry, with a real chapel impulse (docs/base/IR.wav, revLen 1.5) and the master
+  // output stage (vol 1, compressor thresh -20 / ratio 3) leveling/clip-protecting. The one preset that
+  // carries its own ttsPitch/ttsRate/ttsVoice + master params, so selecting it reproduces the full sound.
+  // index.html ships this by default (and loads the IR + speech-realism layer).
+  clear:        { hp: 150, warm: -1, dip: 1, sat: 0, wet: 0, bpFreq: 200, bpQ: 0.3, revAmt: 0.05, revLen: 1.5, vol: 1, compThresh: -20, compRatio: 3, ttsVoice: "en-US-Neural2-C", ttsPitch: -6, ttsRate: 0.80 },
   // Prior production look (ALG-9): deep + slow + warm + reverberant, a low boxy "transmission" tint.
   // Pairs with ttsVoice en-US-Standard-C, ttsPitch -6.5, ttsRate 0.82.
   absolution:   { hp: 90,  warm: 10, dip: -4, sat: 0.1,  wet: 0.15, bpFreq: 500,  bpQ: 0.6, revAmt: 0.75, revLen: 0.65 },
@@ -62,6 +64,27 @@ export function makeIR(ctx, secs, revAmt) {
   return b;
 }
 
+// Shape a LOADED impulse (measured chapel etc.) with the SAME knobs as the synthetic one: trim/fade the
+// tail to `secs` (revLen), scale the wet by `amt` (revAmt), and keep a unity direct spike so the dry voice
+// stays intelligible. This is what gives the reverb sliders control over a loaded IR — without it the IR
+// would play at a fixed level. raw = the decoded AudioBuffer stored on head.__irRaw by loadReverbIR().
+export function processLoadedIR(ctx, raw, secs, amt) {
+  const sr = ctx.sampleRate;
+  const len = Math.max(1, Math.min(raw.length, Math.floor(sr * Math.max(0.02, secs))));
+  const fade = Math.min(len - 1, Math.floor(sr * 0.02)) || 0;   // 20ms fade at the truncation (no click)
+  const out = ctx.createBuffer(raw.numberOfChannels, len, sr);
+  for (let c = 0; c < raw.numberOfChannels; c++) {
+    const src = raw.getChannelData(c), dst = out.getChannelData(c);
+    for (let i = 0; i < len; i++) {
+      let g = amt;
+      if (fade && i > len - fade) g *= (len - i) / fade;
+      dst[i] = src[i] * g;
+    }
+    dst[0] += 1; // direct spike: the dry voice passes through unconvolved (revAmt 0 => fully dry)
+  }
+  return out;
+}
+
 // Build the chain once on the head's audio graph. Idempotent: returns the existing chain if the
 // graph is intact, rebuilds if TalkingHead recreated audioReverbNode. Returns the fx object or null.
 export function installVoiceFX(head) {
@@ -80,7 +103,16 @@ export function installVoiceFX(head) {
   inTap.connect(hp); hp.connect(warm); warm.connect(dip);
   dip.connect(dry); dry.connect(out);                            // clean, intelligible path (always on)
   dip.connect(shaper); shaper.connect(bp); bp.connect(wet); wet.connect(out); // colored "transmission" send
-  const fx = { hp, warm, dip, shaper, bp, dry, wet, reverb: out };
+  // Master output stage: reverb -> compressor (leveler/limiter) -> masterGain -> destination. Catches the
+  // reverb's peaks (no limiter before = clipping risk) and sets overall loudness. TRANSPARENT by default
+  // (ratio 1, threshold 0, unity gain) so production is unchanged until applyVoiceParams sets real values.
+  try { out.disconnect(); } catch (e) {}                         // was reverb -> destination; reroute it
+  const comp = ctx.createDynamicsCompressor();
+  comp.knee.value = 12; comp.attack.value = 0.004; comp.release.value = 0.25;
+  comp.threshold.value = 0; comp.ratio.value = 1;                // 1:1 = passthrough until configured
+  const master = ctx.createGain(); master.gain.value = 1;
+  out.connect(comp); comp.connect(master); master.connect(ctx.destination);
+  const fx = { hp, warm, dip, shaper, bp, dry, wet, reverb: out, comp, master };
   head.__voiceFx = fx;
   return fx;
 }
@@ -95,9 +127,16 @@ export function applyVoiceParams(head, p) {
   fx.shaper.curve = satCurve(p.sat);
   fx.bp.frequency.value = p.bpFreq; fx.bp.Q.value = p.bpQ ?? 0.8;
   fx.wet.gain.value = p.wet;
-  // Respect a measured impulse loaded via speech-realism.js loadReverbIR(): don't overwrite it with
-  // the synthetic tail just because an FX slider moved. clearReverbIR() flips this back.
-  if (!head.__irLoaded) head.audioReverbNode.buffer = makeIR(ctx, p.revLen, p.revAmt);
+  // Reverb amount/length drive BOTH the synthetic tail AND a loaded impulse. loadReverbIR() stores the raw
+  // IR on head.__irRaw; here revAmt scales its wet level and revLen trims its tail (a unity direct spike
+  // keeps the dry voice). clearReverbIR() drops __irRaw and we fall back to the synthetic tail.
+  head.audioReverbNode.buffer = (head.__irLoaded && head.__irRaw)
+    ? processLoadedIR(ctx, head.__irRaw, p.revLen, p.revAmt)
+    : makeIR(ctx, p.revLen, p.revAmt);
+  // Master output stage. Defaults keep it transparent (vol 1, ratio 1, threshold 0) so a preset that
+  // omits these — e.g. production's "clear" — sounds exactly as before; the lab sets real values.
+  if (fx.master) fx.master.gain.value = p.vol ?? 1;
+  if (fx.comp) { fx.comp.threshold.value = p.compThresh ?? 0; fx.comp.ratio.value = p.compRatio ?? 1; }
 }
 
 // Apply the TTS request params a preset MAY carry (ttsPitch/ttsRate/ttsVoice) onto head.avatar, so
