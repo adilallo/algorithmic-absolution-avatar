@@ -32,8 +32,8 @@
   * { box-sizing: border-box; }
   html, body {
     margin: 0;
-    min-height: 100%;   /* TEMP (dev): was `height: 100%` — lets the page grow + scroll */
-    overflow-y: auto;   /* TEMP (dev): scroll re-enabled — revert to `height: 100%` + `overflow: hidden` for the kiosk */
+    height: 100%;
+    overflow: hidden;
     background: var(--paper);
     color: var(--ink);
     font-family: "Special Elite", "Courier New", monospace;
@@ -49,8 +49,8 @@
   .card {
     width: 100%;
     max-width: 640px;
-    max-height: none;   /* TEMP (dev): was `max-height: 100%` */
-    overflow: visible;  /* TEMP (dev): was `overflow: hidden` — revert both for the kiosk */
+    max-height: 100%;
+    overflow: hidden;
     cursor: default;
   }
 
