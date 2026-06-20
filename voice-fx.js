@@ -29,11 +29,12 @@
 // Only `clear` (the shipping voice) carries them today.
 export const VOICE_PRESETS = {
   // SHIPPING production voice (dialed in by the artist, 2026-06-20): Neural2-C pitched -6, slow (0.80),
-  // high-passed and near-dry, with a real chapel impulse (docs/base/IR.wav, revLen 1.5) and the master
-  // output stage (vol 1, compressor thresh -20 / ratio 3) leveling/clip-protecting. The one preset that
-  // carries its own ttsPitch/ttsRate/ttsVoice + master params, so selecting it reproduces the full sound.
-  // index.html ships this by default (and loads the IR + speech-realism layer).
-  clear:        { hp: 150, warm: -1, dip: 1, sat: 0, wet: 0, bpFreq: 200, bpQ: 0.3, revAmt: 0.05, revLen: 1.5, vol: 1, compThresh: -20, compRatio: 3, ttsVoice: "en-US-Neural2-C", ttsPitch: -6, ttsRate: 0.80 },
+  // high-passed with a touch of warmth (+2), and near-dry — a real chapel impulse (docs/base/IR.wav,
+  // revLen 1) at a low revAmt 0.02 — plus the master output stage (vol 1, compressor thresh -20 / ratio 3)
+  // leveling/clip-protecting. The one preset that carries its own ttsPitch/ttsRate/ttsVoice + master
+  // params, so selecting it reproduces the full sound. index.html ships this by default (loads the IR +
+  // speech-realism layer + ttsTrimEnd 400).
+  clear:        { hp: 150, warm: 2, dip: 1, sat: 0, wet: 0, bpFreq: 200, bpQ: 0.3, revAmt: 0.02, revLen: 1, vol: 1, compThresh: -20, compRatio: 3, ttsVoice: "en-US-Neural2-C", ttsPitch: -6, ttsRate: 0.80 },
   // Prior production look (ALG-9): deep + slow + warm + reverberant, a low boxy "transmission" tint.
   // Pairs with ttsVoice en-US-Standard-C, ttsPitch -6.5, ttsRate 0.82.
   absolution:   { hp: 90,  warm: 10, dip: -4, sat: 0.1,  wet: 0.15, bpFreq: 500,  bpQ: 0.6, revAmt: 0.75, revLen: 0.65 },

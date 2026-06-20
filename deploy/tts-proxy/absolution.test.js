@@ -87,9 +87,9 @@ test('buildUserPrompt: lists the declared harms in schedule order, no offsets', 
 test('brevity lives in the USER message (magisterium-1 ignores system); SYSTEM_PROMPT stays empty', () => {
   assert.equal(SYSTEM_PROMPT, ''); // verified 2026-06-17: the model disregards the system role
   const p = buildUserPrompt([CATEGORIES[0], CATEGORIES[4]]);
-  assert.match(p, /sentences/i, 'user message carries the brevity directive');
+  assert.match(p, /sentence/i, 'user message carries the brevity directive');
   assert.doesNotMatch(p, /absolv/i);            // must not trigger Magisterium's refusal
-  assert.match(buildUserPrompt([]), /sentences/i); // empty card carries it too
+  assert.match(buildUserPrompt([]), /sentence/i); // empty card carries it too
 });
 
 test('fallbackKey: order-independent (sorted), so {A,B} === {B,A}; blank card === ""', () => {

@@ -22,6 +22,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const absolution = require('./absolution'); // ALG-15: punch-card totals -> absolution text (Magisterium)
+const absPreview = require('./absolution-preview'); // DEV: harm-tester preview endpoint (candidate prompt/temp)
 
 // --- Paths -----------------------------------------------------------------
 const PROXY_DIR = __dirname;                               // deploy/tts-proxy
@@ -111,6 +112,16 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') return send(res, 204, 'text/plain', '');
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
     return handleAbsolution(req, res);
+  }
+  // DEV harm-tester: defaults for the page (canonical candidate directive + temperature + categories).
+  if (pathname === '/absolution/preview/defaults') {
+    return sendJson(res, 200, { directive: absPreview.DEFAULT_DIRECTIVE, temperature: absPreview.DEFAULT_TEMPERATURE, categories: absolution.CATEGORIES });
+  }
+  // DEV harm-tester: run ONE probe with a caller-supplied directive/temperature (no cache, no day-cap).
+  if (pathname === '/absolution/preview') {
+    if (req.method === 'OPTIONS') return send(res, 204, 'text/plain', '');
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+    return handleAbsolutionPreview(req, res);
   }
   if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: 'Method not allowed' });
   return serveStatic(req, res, pathname);
@@ -255,6 +266,35 @@ async function handleAbsolution(req, res) {
     // Defensive: getAbsolution shouldn't throw, but never leave the ritual without words.
     console.error('[absolution] unexpected error:', e.message);
     sendJson(res, 200, { text: absolution.bakedFallback([]), source: 'fallback', model: null });
+  } finally {
+    absInFlight--;
+  }
+}
+
+// --- DEV: POST /absolution/preview handler (harm-tester) -------------------
+// Runs one Magisterium probe with a caller-supplied directive + temperature so the tester page
+// can sculpt the prompt live. Does NOT touch production: no fallback-cache write, no day-cap.
+// Reuses the per-IP rate bucket + the /absolution concurrency cap as light backpressure.
+async function handleAbsolutionPreview(req, res) {
+  const ip = req.socket.remoteAddress || 'local';
+  let raw;
+  try { raw = await readBody(req, MAX_BODY_BYTES); }
+  catch (e) { return sendJson(res, e.code === 413 ? 413 : 400, { error: e.code === 413 ? 'Payload too large' : 'Failed to read body' }); }
+
+  let body;
+  try { body = raw.length ? JSON.parse(raw.toString('utf8')) : {}; }
+  catch { return sendJson(res, 400, { error: 'Body must be JSON ({ punched, directive, temperature })' }); }
+
+  if (absInFlight >= ABS_MAX_INFLIGHT) return sendJson(res, 429, { error: 'Too many concurrent preview requests' });
+  if (!take(ipBucket(ip))) return sendJson(res, 429, { error: 'Rate limit exceeded' });
+
+  absInFlight++;
+  try {
+    const result = await absPreview.previewAbsolution(body);
+    sendJson(res, 200, result); // includes diagnostics; loopback dev tool, so the full payload is fine
+  } catch (e) {
+    console.error('[absolution/preview] unexpected error:', e.message);
+    sendJson(res, 200, { ok: false, error: 'unexpected: ' + e.message });
   } finally {
     absInFlight--;
   }

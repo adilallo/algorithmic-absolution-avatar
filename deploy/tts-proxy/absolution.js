@@ -43,11 +43,12 @@ function readConfig() {
     // NOTE: max_tokens does NOT bound cost here — the dominant ~13-20k "system_tokens" are the
     // RAG-retrieved sources, billed as output and uncapped by this. It only trims the visible answer.
     maxTokens: int(process.env.ABSOLUTION_MAX_TOKENS, 320),
-    // Low temperature: the offsets are baked (see SCHEDULE OF REMITTANCES below), so the model
-    // only welds fixed clauses into prose — it should not drift. 0.6 keeps moderate liturgical
-    // variation without inventing content. For a gallery, prefer pre-baking/caching per punch-tuple
-    // (see docs/ABSOLUTION_PROMPT.md "Determinism") over relying on per-call sampling.
-    temperature: num(process.env.ABSOLUTION_TEMPERATURE, 0.6),
+    // Temperature 1.2 (raised from 0.6, 2026-06-20): the active directive (BREVITY_RIDDLE) wants an
+    // uncanny, riddle-like register, and the higher temp gives that strangeness while staying coherent.
+    // NOTE: magisterium-1 CACHES by prompt text — the same card returns byte-identical text regardless of
+    // temp, so this only colors the FIRST (uncached) generation per distinct card; per-card output is
+    // effectively deterministic (good for a gallery, and the fallback cache relies on it).
+    temperature: num(process.env.ABSOLUTION_TEMPERATURE, 1.2),
     // Hard cap on SPOKEN length, trimmed to whole sentences. Kept UNDER the /tts gate
     // (TTS_MAX_INPUT_CHARS, default 2000) — over that, TTS 400s -> silence. 1800 lets the avatar
     // speak most of a Magisterium answer (raw ~4-5k chars) instead of ~2-4 sentences; note this is
@@ -110,7 +111,14 @@ const SYSTEM_PROMPT = '';
 // Keep the word "absolution"/"absolve" OUT of either (it triggers Magisterium's "only a priest" refusal).
 const BREVITY_PLAIN = 'Respond in three or four sentences. Do not use headings or lists, and do not quote or cite sources.';
 const BREVITY_VIVID = 'Respond in three or four sentences: name in one striking phrase what these harms share, give one concrete image, and anchor it with a single memorable quotation from scripture or the Church. No headings or lists.';
-const BREVITY = BREVITY_VIVID; // active directive; set to BREVITY_PLAIN to revert to the dry fallback
+// BREVITY_RIDDLE (active, andy 2026-06-20) — the uncanny/riddle register. ONE short sentence; the single
+// thing the harms share given as one strange picture with a fragment of scripture WOVEN IN (no quotes, no
+// citation); no explanation or moral. Sculpted over 7 rounds + judge-verified against the vivid/plain
+// variants (see docs/ABSOLUTION_PROMPT.md). Pairs with ABSOLUTION_TEMPERATURE 1.2. Keep "absolution"/
+// "absolve" OUT, and do NOT frame it as a "riddle to solve" or drop the scripture clause — either makes
+// magisterium-1 emit its out-of-scope deflection (now caught by the widened looksLikeRefusal).
+const BREVITY_RIDDLE = 'Reply in a single sentence of at most 35 words — no matter how many harms are listed, never more than one sentence. Do not explain, list, or name the harms, and do not add a moral, lesson, or consequence; instead give only the ONE thing they all share, as a single strange and disquieting picture. Fold one fragment of old scripture into that sentence so seamlessly that it carries no quotation marks, no dash before it, and no attribution — it must read as part of the picture, not as a quote. Do not use the words riddle, omen, image, uncanny, or card.';
+const BREVITY = BREVITY_RIDDLE; // active directive; set to BREVITY_VIVID / BREVITY_PLAIN to revert
 
 // Build the user message: state the declared harms (the punched category labels, in schedule order),
 // then the brevity directive. The model responds freely within that length; we speak its response.
@@ -401,7 +409,13 @@ function looksLikeRefusal(text) {
   const head = body.trim().slice(0, 200);
   return /^(i cannot|i can['’]?t|i am unable|i['’]?m unable|i will not|i won['’]?t)\b/.test(head)
     || /\b(cannot|can['’]?t|am not able to|unable to) (administer|grant|pronounce|give|offer) (absolution|a sacrament|the sacrament)/.test(body)
-    || /only (a |an )?(validly )?ordained priest/.test(body);
+    || /only (a |an )?(validly )?ordained priest/.test(body)
+    // Magisterium's out-of-scope deflection (added 2026-06-20): the riddle/oracle register can make it
+    // answer "I am Magisterium AI ... outside the scope of Catholicism" instead of a line. These phrases
+    // never occur in a real absolution, so matching them is safe and stops the deflection being spoken.
+    || /\bmagisterium ai\b/.test(body)
+    || /scope of catholicism/.test(body)
+    || /not able to answer (questions|that|anything)/.test(body);
 }
 
 function health() {
@@ -419,4 +433,4 @@ function health() {
   };
 }
 
-module.exports = { getAbsolution, health, normalizeTotals, buildUserPrompt, pickCanned, bakedFallback, fallbackKey, cleanForSpeech, looksLikeRefusal, readConfig, CATEGORIES, SYSTEM_PROMPT, CANNED };
+module.exports = { getAbsolution, health, normalizeTotals, buildUserPrompt, pickCanned, bakedFallback, fallbackKey, cleanForSpeech, looksLikeRefusal, readConfig, CATEGORIES, SYSTEM_PROMPT, CANNED, BREVITY };

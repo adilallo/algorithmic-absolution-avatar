@@ -67,24 +67,32 @@ that *does* honor system prompts.
 ## User message
 
 The declared harms **plus the `BREVITY` directive** (`buildUserPrompt()`) — the user message is the only
-place magisterium-1 obeys instructions, so the directive is appended here. Two directives are defined;
+place magisterium-1 obeys instructions, so the directive is appended here. Three directives are defined;
 `BREVITY` selects the active one:
 
-- **`BREVITY_VIVID` (active):** *"Respond in two or three sentences: name in one striking phrase what
+- **`BREVITY_RIDDLE` (active, 2026-06-20):** *"Reply in a single sentence of at most 35 words … give only
+  the ONE thing they all share, as a single strange and disquieting picture. Fold one fragment of old
+  scripture into that sentence so seamlessly that it carries no quotation marks, no dash before it, and
+  no attribution … Do not use the words riddle, omen, image, uncanny, or card."* — the uncanny/riddle
+  register: one short image-sentence, the shared sin given obliquely, scripture submerged unattributed,
+  no explanation or moral. Sculpted over 7 rounds + judge-verified vs the variants below (the panel scored
+  it well above the vivid baseline on uncanny / riddle-like / brevity / register). Pairs with temperature
+  **1.2**. ~100–230 chars, `finish_reason: stop`, and length does **not** grow with the number of harms.
+  ⚠️ Do not reframe it as a "riddle to solve" or remove the scripture clause — either makes magisterium-1
+  emit its out-of-scope deflection (now caught by the widened `looksLikeRefusal`; see below).
+- **`BREVITY_VIVID` (alternate):** *"Respond in three or four sentences: name in one striking phrase what
   these harms share, give one concrete image, and anchor it with a single memorable quotation from
-  scripture or the Church. No headings or lists."* — brief but permits citation; draws out fresh
-  per-card imagery + a quote (verified: a bakery whose ovens never cool; a neighborhood well locked and
-  sold by the cup). ~300–500 chars, `finish_reason: stop`.
-- **`BREVITY_PLAIN` (fallback):** *"Respond in no more than two or three sentences. Do not use headings
-  or lists, and do not quote or cite sources."* — dry, no quotes/imagery. Revert here if the vivid one
-  drifts long or off-tone.
+  scripture or the Church. No headings or lists."* — brief but explanatory (a competent mini-homily):
+  states the shared thing and sets the quote off as a citation. Revert here for a clearer, less strange tone.
+- **`BREVITY_PLAIN` (fallback):** *"Respond in three or four sentences. Do not use headings
+  or lists, and do not quote or cite sources."* — dry, no quotes/imagery. Revert here if the others drift.
 
 ```
 A card was submitted declaring these categories of harm:
 - BENEFITING FROM UNDERPAID LABOR
 - PRICING WHAT SHOULD NOT BE SOLD
 
-Respond in two or three sentences: name in one striking phrase what these harms share, give one concrete image, and anchor it with a single memorable quotation from scripture or the Church. No headings or lists.
+Reply in a single sentence of at most 35 words — no matter how many harms are listed, never more than one sentence. Do not explain, list, or name the harms, and do not add a moral, lesson, or consequence; instead give only the ONE thing they all share, as a single strange and disquieting picture. Fold one fragment of old scripture into that sentence so seamlessly that it carries no quotation marks, no dash before it, and no attribution — it must read as part of the picture, not as a quote. Do not use the words riddle, omen, image, uncanny, or card.
 ```
 
 (Blank card swaps the harm list for "A card was submitted declaring no category of harm." and appends
@@ -123,7 +131,10 @@ reply normally lands well under them.
 
 The model now authors the wording, so output varies per call. Knobs:
 
-- **Temperature `0.4`** (`ABSOLUTION_TEMPERATURE`) — keeps variation modest.
+- **Temperature `1.2`** (`ABSOLUTION_TEMPERATURE`, raised from 0.6 on 2026-06-20 for the riddle register).
+  magisterium-1 **caches by prompt text**: a given card returns byte-identical text regardless of
+  temperature, so temp only colors the *first uncached* generation per distinct card — per-card output is
+  effectively deterministic (which suits a gallery and is exactly what the fallback cache below relies on).
 - **Per-submission fallback cache (implemented).** The live Magisterium call stays **primary**; the
   cache is a *fallback* used only when a live call fails (error / timeout / connection loss / refusal
   / over-cap). The input space is exactly `2^10 = 1024` subsets (incl. the blank card), keyed
@@ -180,6 +191,13 @@ Nothing here is Magisterium-specific — the same messages run on any competent 
   swaps only a genuine hard refusal ("I cannot/will not", "cannot pronounce absolution", "only an
   ordained priest") for canned — it no longer filters clarifying answers ("I must clarify…", "I'm
   sorry, but…"), and it logs the filtered `head="…"`.
+- **Out-of-scope deflection — widened guard (2026-06-20, with `BREVITY_RIDDLE`).** The riddle/oracle
+  register raises a new, *silent* failure mode: framing the task as a "riddle to solve" (or dropping the
+  scripture clause) makes magisterium-1 answer *"I am Magisterium AI … not able to answer questions that
+  fall outside the scope of Catholicism."* This is NOT caught by the hard-refusal patterns above, so it
+  would be **spoken aloud**. `looksLikeRefusal` now also matches `magisterium ai`, `scope of catholicism`,
+  and `not able to answer …` → routes to canned. The shipping `BREVITY_RIDDLE` avoids triggering it
+  (moral content foregrounded + scripture kept): **0 deflections across 57 scripture-anchored test calls**.
 
 **Implication:** the catechesis, latency, and cost are **Magisterium's nature** (a RAG-grounded
 Catholic assistant) — neither clearing nor removing the prompt changes it. The setup is portable:

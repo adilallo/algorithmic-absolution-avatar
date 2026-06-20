@@ -259,6 +259,7 @@
       // Same-origin proxy that injects the Google key server-side and forwards to
       // v1beta1/text:synthesize. ttsApikey is intentionally omitted so TalkingHead appends no ?key=.
       ttsEndpoint: ttsProxy,
+      ttsTrimEnd: 400,   // clip the dead tail after the last viseme (tuned in oracle-voice-audition.html)
       lipsyncModules: ["en"],
       cameraView: "head",
       lightAmbientColor: 0xfff1dc, lightAmbientIntensity: 0.42,
@@ -1245,7 +1246,7 @@
         on: true,
         face: { px:0, py:1.74, pz:1.72, tx:0, ty:1.74, tz:0, fov:10 },  // resting: tight, centred face (neck cropped)
         wide: { px:0, py:1.62, pz:3.8,  tx:0, ty:1.60, tz:0, fov:15 },  // gesture: head + halo + chest, cropped ~navel
-        outMs: 2400, inMs: 3000, hold: 350,   // much slower, cinematic zoom out/in
+        outMs: 3200, inMs: 3000, hold: 350,   // slow cinematic zoom; outMs raised 2400->3200 for a gentler, smoother close->wide pan
       };
       const LIGHTSWELL = window.LIGHTSWELL = {
         on: true,
