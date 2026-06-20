@@ -1246,7 +1246,7 @@
         on: true,
         face: { px:0, py:1.74, pz:1.72, tx:0, ty:1.74, tz:0, fov:10 },  // resting: tight, centred face (neck cropped)
         wide: { px:0, py:1.62, pz:3.8,  tx:0, ty:1.60, tz:0, fov:15 },  // gesture: head + halo + chest, cropped ~navel
-        outMs: 3200, inMs: 3000, hold: 350,   // slow cinematic zoom; outMs raised 2400->3200 for a gentler, smoother close->wide pan
+        outMs: 3200, inMs: 3600, hold: 350,   // slow cinematic zoom; outMs 2400->3200 (close->wide) + inMs 3000->3600 (wide->close) for gentler, smoother eases both ways
       };
       const LIGHTSWELL = window.LIGHTSWELL = {
         on: true,
